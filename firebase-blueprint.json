@@ -1,0 +1,241 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Student candidate profile and UTME target preferences",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "User UID matching auth.uid",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "description": "Student email address",
+          "maxLength": 100
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Student candidate full name",
+          "maxLength": 100
+        },
+        "phoneNumber": {
+          "type": "string",
+          "description": "Nigerian contact phone number",
+          "maxLength": 20
+        },
+        "targetScore": {
+          "type": "number",
+          "description": "Target UTME aggregate score (e.g. 320)"
+        },
+        "preferredInstitution": {
+          "type": "string",
+          "description": "First choice higher institution",
+          "maxLength": 100
+        },
+        "registeredAt": {
+          "type": "number",
+          "description": "Epoch timestamp in milliseconds when candidate registered"
+        },
+        "isActivated": {
+          "type": "boolean",
+          "description": "Whether system has been activated with 1500 naira via OPay"
+        },
+        "activatedAt": {
+          "type": "string",
+          "description": "Timestamp when activation payment was verified"
+        },
+        "paymentReference": {
+          "type": "string",
+          "description": "OPay payment verification reference",
+          "maxLength": 100
+        },
+        "opayAccount": {
+          "type": "string",
+          "description": "OPay phone number or account used for payment",
+          "maxLength": 100
+        },
+        "isEmailVerified": {
+          "type": "boolean",
+          "description": "Whether the student email has been verified before login"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Server timestamp of registration"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Server timestamp of last profile update"
+        }
+      },
+      "required": ["id", "email", "fullName"]
+    },
+    "TestResult": {
+      "title": "TestResult",
+      "description": "Completed CBT practice test session record",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique test attempt ID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Candidate UID who took the test",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "testTitle": {
+          "type": "string",
+          "description": "Name of the CBT simulator module",
+          "maxLength": 120
+        },
+        "testType": {
+          "type": "string",
+          "description": "Type of exam (general, jamb, novel, archive)",
+          "maxLength": 50
+        },
+        "score": {
+          "type": "number",
+          "description": "Correct answers score"
+        },
+        "totalQuestions": {
+          "type": "number",
+          "description": "Total number of questions in test"
+        },
+        "percentage": {
+          "type": "number",
+          "description": "Percentage score (0 - 100)"
+        },
+        "timeSpentSeconds": {
+          "type": "number",
+          "description": "Duration spent on test in seconds"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Server timestamp when test was submitted"
+        }
+      },
+      "required": ["id", "userId", "testTitle", "testType", "score", "totalQuestions"]
+    },
+    "FeedPost": {
+      "title": "FeedPost",
+      "description": "Community question or announcement in Your Feed",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Post ID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorId": {
+          "type": "string",
+          "description": "UID of the author candidate",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorName": {
+          "type": "string",
+          "description": "Display name of the author",
+          "maxLength": 100
+        },
+        "tag": {
+          "type": "string",
+          "description": "Feed tag e.g. JAMB News, Past Questions, Subject Discussions",
+          "maxLength": 50
+        },
+        "title": {
+          "type": "string",
+          "description": "Post headline or subject",
+          "maxLength": 150
+        },
+        "content": {
+          "type": "string",
+          "description": "Post body text",
+          "maxLength": 2000
+        },
+        "likesCount": {
+          "type": "number",
+          "description": "Number of upvotes"
+        },
+        "commentsCount": {
+          "type": "number",
+          "description": "Number of replies"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Server timestamp of post creation"
+        }
+      },
+      "required": ["id", "authorId", "authorName", "tag", "title", "content"]
+    },
+    "AccountActivation": {
+      "title": "AccountActivation",
+      "description": "Cross-device student account registration timestamp and OPay activation status",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Sanitized email identifier matching document ID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "description": "Student registered email address",
+          "maxLength": 100
+        },
+        "registeredAt": {
+          "type": "number",
+          "description": "Authoritative epoch timestamp in milliseconds when account was registered"
+        },
+        "isActivated": {
+          "type": "boolean",
+          "description": "Whether system has been activated with 1500 naira via OPay"
+        },
+        "activatedAt": {
+          "type": "number",
+          "description": "Epoch timestamp in milliseconds when activation was confirmed"
+        },
+        "paymentReference": {
+          "type": "string",
+          "description": "OPay payment verification reference",
+          "maxLength": 100
+        },
+        "opayAccount": {
+          "type": "string",
+          "description": "OPay phone number or account used for payment",
+          "maxLength": 100
+        },
+        "isEmailVerified": {
+          "type": "boolean",
+          "description": "Whether the student email has been verified"
+        }
+      },
+      "required": ["id", "email", "registeredAt", "isActivated"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Private candidate user profiles"
+    },
+    "/testResults/{resultId}": {
+      "schema": "TestResult",
+      "description": "CBT test performance results"
+    },
+    "/posts/{postId}": {
+      "schema": "FeedPost",
+      "description": "Public student feed discussions and updates"
+    },
+    "/accountActivations/{activationId}": {
+      "schema": "AccountActivation",
+      "description": "Authoritative cross-device registration countdown and activation status"
+    }
+  }
+}

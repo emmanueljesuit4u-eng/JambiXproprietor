@@ -1,0 +1,6 @@
+{
+  "name": "JAMBix - UTME Preparation",
+  "description": "Modern Nigerian JAMB/UTME preparation app: Sign Up, Log In, CBT Simulator, and Student Dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

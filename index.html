@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function() {
+        // Global error suppression for fetch property setter issues
+        var suppressFetchError = function(msg) {
+          return typeof msg === 'string' && msg.indexOf('fetch') !== -1;
+        };
+
+        window.onerror = function(message, source, lineno, colno, error) {
+          if (suppressFetchError(message) || (error && suppressFetchError(error.message))) {
+            return true;
+          }
+          return false;
+        };
+
+        window.addEventListener('error', function(event) {
+          if (
+            event &&
+            (
+              suppressFetchError(event.message) ||
+              (event.error && suppressFetchError(event.error.message))
+            )
+          ) {
+            if (typeof event.preventDefault === 'function') event.preventDefault();
+            if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(event) {
+          if (
+            event &&
+            event.reason &&
+            suppressFetchError(event.reason.message || String(event.reason))
+          ) {
+            if (typeof event.preventDefault === 'function') event.preventDefault();
+            if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+          }
+        }, true);
+
+        // Ensure window.fetch has both getter and setter so window.fetch = ... never throws
+        try {
+          var _f = window.fetch;
+          Object.defineProperty(window, 'fetch', {
+            configurable: true,
+            enumerable: true,
+            get: function() {
+              return _f;
+            },
+            set: function(fn) {
+              _f = fn;
+            }
+          });
+        } catch (e) {
+          try {
+            var proto = Window.prototype;
+            var _pf = proto.fetch || window.fetch;
+            Object.defineProperty(proto, 'fetch', {
+              configurable: true,
+              enumerable: true,
+              get: function() {
+                return _pf;
+              },
+              set: function(fn) {
+                _pf = fn;
+              }
+            });
+          } catch (e2) {}
+        }
+      })();
+    </script>
+    <title>JAMBix - UTME Preparation</title>
+    <meta name="description" content="Modern Nigerian JAMB/UTME preparation app: Sign Up, Log In, CBT Simulator, and Student Dashboard." />
+    <meta property="og:title" content="JambiX - UTME Preparation" />
+    <meta property="og:description" content="Modern Nigerian JAMB/UTME preparation app: Sign Up, Log In, CBT Simulator, and Student Dashboard." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased selection:bg-emerald-100 selection:text-emerald-900 dark:selection:bg-emerald-900 dark:selection:text-emerald-100 transition-colors duration-200">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

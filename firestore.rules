@@ -1,0 +1,148 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny catch-all (Pillar 1 Global Safety Net)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email in ['cligragh3@gmail.com', 'emmanueljesuit4u@gmail.com'] ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Validation Blueprints
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['id', 'email', 'fullName']) &&
+             data.keys().hasOnly(['id', 'email', 'fullName', 'phoneNumber', 'targetScore', 'preferredInstitution', 'registeredAt', 'isActivated', 'activatedAt', 'paymentReference', 'opayAccount', 'isEmailVerified', 'createdAt', 'updatedAt']) &&
+             data.id is string && data.id == request.auth.uid &&
+             data.email is string && data.email.size() <= 100 &&
+             data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 100 &&
+             (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 20)) &&
+             (!('targetScore' in data) || (data.targetScore is number && data.targetScore >= 0 && data.targetScore <= 400)) &&
+             (!('preferredInstitution' in data) || (data.preferredInstitution is string && data.preferredInstitution.size() <= 100)) &&
+             (!('registeredAt' in data) || (data.registeredAt is number)) &&
+             (!('isActivated' in data) || (data.isActivated is bool)) &&
+             (!('activatedAt' in data) || (data.activatedAt is string || data.activatedAt is number)) &&
+             (!('paymentReference' in data) || (data.paymentReference is string && data.paymentReference.size() <= 100)) &&
+             (!('opayAccount' in data) || (data.opayAccount is string && data.opayAccount.size() <= 100)) &&
+             (!('isEmailVerified' in data) || (data.isEmailVerified is bool));
+    }
+
+    function isValidTestResult(data) {
+      return data.keys().hasAll(['id', 'userId', 'testTitle', 'testType', 'score', 'totalQuestions']) &&
+             data.keys().hasOnly(['id', 'userId', 'testTitle', 'testType', 'score', 'totalQuestions', 'percentage', 'timeSpentSeconds', 'createdAt']) &&
+             data.id is string && isValidId(data.id) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.testTitle is string && data.testTitle.size() <= 120 &&
+             data.testType is string && data.testType.size() <= 50 &&
+             data.score is number && data.score >= 0 &&
+             data.totalQuestions is number && data.totalQuestions > 0 &&
+             data.score <= data.totalQuestions;
+    }
+
+    function isValidFeedPost(data) {
+      return data.keys().hasAll(['id', 'authorId', 'authorName', 'tag', 'title', 'content']) &&
+             data.keys().hasOnly(['id', 'authorId', 'authorName', 'tag', 'title', 'content', 'likesCount', 'commentsCount', 'createdAt']) &&
+             data.id is string && isValidId(data.id) &&
+             data.authorId is string && data.authorId == request.auth.uid &&
+             data.authorName is string && data.authorName.size() <= 100 &&
+             data.tag is string && data.tag.size() <= 50 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 150 &&
+             data.content is string && data.content.size() > 0 && data.content.size() <= 2000;
+    }
+
+    function isValidAccountActivation(data) {
+      return data.keys().hasAll(['id', 'email', 'registeredAt', 'isActivated']) &&
+             data.keys().hasOnly(['id', 'email', 'registeredAt', 'isActivated', 'activatedAt', 'paymentReference', 'opayAccount', 'isEmailVerified']) &&
+             data.id is string && isValidId(data.id) &&
+             data.email is string && data.email.size() <= 100 &&
+             data.registeredAt is number &&
+             data.isActivated is bool &&
+             (!('activatedAt' in data) || (data.activatedAt is number)) &&
+             (!('paymentReference' in data) || (data.paymentReference is string && data.paymentReference.size() <= 100)) &&
+             (!('opayAccount' in data) || (data.opayAccount is string && data.opayAccount.size() <= 100)) &&
+             (!('isEmailVerified' in data) || (data.isEmailVerified is bool));
+    }
+
+    // Health check / connection test doc
+    match /test/{docId} {
+      allow read: if true;
+    }
+
+    // User profiles (PII Isolation: Only owner or admin can read/write)
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && isValidUserProfile(incoming());
+      allow update: if (isOwner(userId) || isAdmin()) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().id == existing().id &&
+                       (!('createdAt' in existing()) || !('createdAt' in incoming()) || incoming().createdAt == existing().createdAt);
+      allow delete: if isAdmin();
+    }
+
+    // Test results
+    match /testResults/{resultId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(resultId) && isValidTestResult(incoming());
+      allow update: if isAdmin();
+      allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+    }
+
+    // Community Feed Posts
+    match /posts/{postId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if isSignedIn() && isValidId(postId) && isValidFeedPost(incoming());
+      allow update: if (isSignedIn() && existing().authorId == request.auth.uid && isValidFeedPost(incoming())) ||
+                       (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'commentsCount'])) ||
+                       isAdmin();
+      allow delete: if (isSignedIn() && existing().authorId == request.auth.uid) || isAdmin();
+    }
+
+    // Admins registry
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Cross-device account activations registry
+    match /accountActivations/{activationId} {
+      allow get: if isSignedIn();
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && isValidId(activationId) && isValidAccountActivation(incoming()) && incoming().id == activationId;
+      allow update: if isSignedIn() && isValidId(activationId) && isValidAccountActivation(incoming()) &&
+                       incoming().id == existing().id &&
+                       incoming().registeredAt == existing().registeredAt &&
+                       (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['isActivated', 'activatedAt', 'paymentReference', 'opayAccount', 'isEmailVerified']));
+      allow delete: if isAdmin();
+    }
+  }
+}
