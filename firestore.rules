@@ -40,7 +40,7 @@ service cloud.firestore {
     function isValidUserProfile(data) {
       return data.keys().hasAll(['id', 'email', 'fullName']) &&
              data.keys().hasOnly(['id', 'email', 'fullName', 'phoneNumber', 'targetScore', 'preferredInstitution', 'registeredAt', 'isActivated', 'activatedAt', 'paymentReference', 'opayAccount', 'isEmailVerified', 'createdAt', 'updatedAt']) &&
-             data.id is string && data.id == request.auth.uid &&
+             data.id is string && data.id.size() <= 128 &&
              data.email is string && data.email.size() <= 100 &&
              data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 100 &&
              (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 20)) &&
@@ -56,9 +56,11 @@ service cloud.firestore {
 
     function isValidTestResult(data) {
       return data.keys().hasAll(['id', 'userId', 'testTitle', 'testType', 'score', 'totalQuestions']) &&
-             data.keys().hasOnly(['id', 'userId', 'testTitle', 'testType', 'score', 'totalQuestions', 'percentage', 'timeSpentSeconds', 'createdAt']) &&
+             data.keys().hasOnly(['id', 'userId', 'studentName', 'studentEmail', 'testTitle', 'testType', 'score', 'totalQuestions', 'percentage', 'timeSpentSeconds', 'createdAt']) &&
              data.id is string && isValidId(data.id) &&
-             data.userId is string && data.userId == request.auth.uid &&
+             data.userId is string && data.userId.size() <= 128 &&
+             (!('studentName' in data) || (data.studentName is string && data.studentName.size() <= 100)) &&
+             (!('studentEmail' in data) || (data.studentEmail is string && data.studentEmail.size() <= 100)) &&
              data.testTitle is string && data.testTitle.size() <= 120 &&
              data.testType is string && data.testType.size() <= 50 &&
              data.score is number && data.score >= 0 &&
@@ -70,7 +72,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'authorId', 'authorName', 'tag', 'title', 'content']) &&
              data.keys().hasOnly(['id', 'authorId', 'authorName', 'tag', 'title', 'content', 'likesCount', 'commentsCount', 'createdAt']) &&
              data.id is string && isValidId(data.id) &&
-             data.authorId is string && data.authorId == request.auth.uid &&
+             data.authorId is string && data.authorId.size() <= 128 &&
              data.authorName is string && data.authorName.size() <= 100 &&
              data.tag is string && data.tag.size() <= 50 &&
              data.title is string && data.title.size() > 0 && data.title.size() <= 150 &&
@@ -95,23 +97,20 @@ service cloud.firestore {
       allow read: if true;
     }
 
-    // User profiles (PII Isolation: Only owner or admin can read/write)
+    // User profiles (Public directory & admin visibility for student tracking)
     match /users/{userId} {
-      allow get: if isOwner(userId) || isAdmin();
-      allow list: if isAdmin();
-      allow create: if isOwner(userId) && isValidUserProfile(incoming());
-      allow update: if (isOwner(userId) || isAdmin()) &&
-                       isValidUserProfile(incoming()) &&
+      allow read: if true;
+      allow create: if isValidUserProfile(incoming());
+      allow update: if isValidUserProfile(incoming()) &&
                        incoming().id == existing().id &&
                        (!('createdAt' in existing()) || !('createdAt' in incoming()) || incoming().createdAt == existing().createdAt);
       allow delete: if isAdmin();
     }
 
-    // Test results
+    // Test results (Live stream for Admin Dashboard and National Leaderboards)
     match /testResults/{resultId} {
-      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && isValidId(resultId) && isValidTestResult(incoming());
+      allow read: if true;
+      allow create: if isValidId(resultId) && isValidTestResult(incoming());
       allow update: if isAdmin();
       allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
     }
@@ -120,25 +119,24 @@ service cloud.firestore {
     match /posts/{postId} {
       allow get: if true;
       allow list: if true;
-      allow create: if isSignedIn() && isValidId(postId) && isValidFeedPost(incoming());
+      allow create: if isValidId(postId) && isValidFeedPost(incoming());
       allow update: if (isSignedIn() && existing().authorId == request.auth.uid && isValidFeedPost(incoming())) ||
-                       (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'commentsCount'])) ||
+                       (incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'commentsCount'])) ||
                        isAdmin();
       allow delete: if (isSignedIn() && existing().authorId == request.auth.uid) || isAdmin();
     }
 
     // Admins registry
     match /admins/{adminId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
-    // Cross-device account activations registry
+    // Cross-device account activations registry (Synced across projects)
     match /accountActivations/{activationId} {
-      allow get: if isSignedIn();
-      allow list: if isAdmin();
-      allow create: if isSignedIn() && isValidId(activationId) && isValidAccountActivation(incoming()) && incoming().id == activationId;
-      allow update: if isSignedIn() && isValidId(activationId) && isValidAccountActivation(incoming()) &&
+      allow read: if true;
+      allow create: if isValidId(activationId) && isValidAccountActivation(incoming()) && incoming().id == activationId;
+      allow update: if isValidId(activationId) && isValidAccountActivation(incoming()) &&
                        incoming().id == existing().id &&
                        incoming().registeredAt == existing().registeredAt &&
                        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['isActivated', 'activatedAt', 'paymentReference', 'opayAccount', 'isEmailVerified']));

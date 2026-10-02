@@ -59,6 +59,7 @@ import { QuestionImageDisplay } from '../common/QuestionImageDisplay';
 import { auth } from '../../lib/firebase';
 import {
   getUserTestResults,
+  subscribeToTestResults,
   TestResultData,
 } from '../../lib/firestoreService';
 import {
@@ -183,6 +184,23 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     loadStoredData();
   }, [effectiveOnline]);
 
+  // Real-time Live Leaderboard Stream
+  const [liveLeaderboard, setLiveLeaderboard] = useState<TestResultData[]>([]);
+
+  useEffect(() => {
+    const unsub = subscribeToTestResults((tests) => {
+      if (tests && tests.length > 0) {
+        const sorted = [...tests].sort((a, b) => {
+          const aScaled = Math.round((a.score / (a.totalQuestions || 1)) * 400);
+          const bScaled = Math.round((b.score / (b.totalQuestions || 1)) * 400);
+          return bScaled - aScaled;
+        });
+        setLiveLeaderboard(sorted);
+      }
+    });
+    return () => unsub();
+  }, []);
+
   const handleLaunchTest = (title: string, type: string, subject?: string, year?: number) => {
     setActiveTest({ title, type, subject, year });
     setIsCbtModalOpen(true);
@@ -215,6 +233,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               { id: 'Study', icon: GraduationCap, label: 'Study' },
               { id: 'Test', icon: Monitor, label: 'Test' },
               { id: 'Archive', icon: BookOpen, label: '1978-2026' },
+              { id: 'Leaderboard', icon: Trophy, label: 'Leaders' },
               { id: 'History', icon: Clock, label: 'History' },
               { id: 'Connect', icon: Users, label: 'Connect' },
             ].map((item) => {
@@ -1365,6 +1384,195 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               </div>
             )}
 
+            {/* View: Live National UTME Leaderboard */}
+            {activeNav === 'Leaderboard' && (
+              <div className="space-y-6 animate-in fade-in duration-200">
+                {/* Header Banner */}
+                <div className="p-6 rounded-2xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 text-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-black/25 text-amber-100 border border-white/20 mb-2">
+                      <Trophy className="w-3.5 h-3.5 text-yellow-300" />
+                      <span>Live All-Nigeria UTME Rankings</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-1" />
+                    </div>
+                    <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                      National Candidate Leaderboard
+                    </h3>
+                    <p className="text-xs sm:text-sm text-amber-100/90 mt-1 max-w-xl">
+                      Real-time test scores and rankings streamed directly from student exam submissions across all 36 Nigerian states.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => handleLaunchTest('JAMB CBT Simulator', 'jamb')}
+                    className="px-4 py-2.5 bg-white text-slate-900 hover:bg-amber-50 font-bold text-xs rounded-xl shadow-xs flex items-center gap-2 transition-all cursor-pointer self-start md:self-auto shrink-0"
+                  >
+                    <Trophy className="w-4 h-4 text-amber-600" />
+                    <span>Take Test to Rank</span>
+                  </button>
+                </div>
+
+                {/* Top 3 Podium */}
+                {liveLeaderboard.length >= 3 && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                    {/* Rank 2 - Silver */}
+                    <div className="order-2 md:order-1 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 text-center flex flex-col items-center justify-between shadow-2xs">
+                      <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 font-black text-lg flex items-center justify-center border-2 border-slate-300 dark:border-slate-700 mb-2">
+                        🥈 2
+                      </div>
+                      <h4 className="text-sm font-extrabold text-slate-900 dark:text-white truncate max-w-full">
+                        {liveLeaderboard[1].studentName || liveLeaderboard[1].studentEmail?.split('@')[0] || 'Candidate'}
+                      </h4>
+                      <p className="text-[11px] text-slate-500 truncate max-w-full">{liveLeaderboard[1].testTitle}</p>
+                      <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 w-full flex justify-around text-xs">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-medium">Scaled UTME</span>
+                          <span className="text-base font-black text-slate-700 dark:text-slate-300">
+                            {Math.round((liveLeaderboard[1].score / (liveLeaderboard[1].totalQuestions || 1)) * 400)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-medium">Accuracy</span>
+                          <span className="text-base font-black text-emerald-600">
+                            {liveLeaderboard[1].percentage}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Rank 1 - Gold */}
+                    <div className="order-1 md:order-2 bg-gradient-to-b from-amber-50 to-white dark:from-amber-950/30 dark:to-slate-900 rounded-2xl border-2 border-amber-400 dark:border-amber-600/60 p-6 text-center flex flex-col items-center justify-between shadow-md transform md:-translate-y-2">
+                      <div className="w-14 h-14 rounded-full bg-amber-100 text-amber-800 font-black text-xl flex items-center justify-center border-2 border-amber-400 shadow-inner mb-2">
+                        🥇 1
+                      </div>
+                      <div className="inline-block px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500 text-white mb-1">
+                        Top National Scholar
+                      </div>
+                      <h4 className="text-base font-black text-slate-900 dark:text-white truncate max-w-full">
+                        {liveLeaderboard[0].studentName || liveLeaderboard[0].studentEmail?.split('@')[0] || 'Top Candidate'}
+                      </h4>
+                      <p className="text-xs text-slate-500 truncate max-w-full">{liveLeaderboard[0].testTitle}</p>
+                      <div className="mt-3 pt-3 border-t border-amber-200/60 dark:border-amber-900/60 w-full flex justify-around text-xs">
+                        <div>
+                          <span className="text-[10px] text-slate-500 block font-medium">Scaled UTME</span>
+                          <span className="text-xl font-black text-amber-600 dark:text-amber-400">
+                            {Math.round((liveLeaderboard[0].score / (liveLeaderboard[0].totalQuestions || 1)) * 400)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 block font-medium">Accuracy</span>
+                          <span className="text-xl font-black text-emerald-600">
+                            {liveLeaderboard[0].percentage}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Rank 3 - Bronze */}
+                    <div className="order-3 md:order-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 text-center flex flex-col items-center justify-between shadow-2xs">
+                      <div className="w-12 h-12 rounded-full bg-amber-100/60 text-amber-700 font-black text-lg flex items-center justify-center border-2 border-amber-300 dark:border-amber-800 mb-2">
+                        🥉 3
+                      </div>
+                      <h4 className="text-sm font-extrabold text-slate-900 dark:text-white truncate max-w-full">
+                        {liveLeaderboard[2].studentName || liveLeaderboard[2].studentEmail?.split('@')[0] || 'Candidate'}
+                      </h4>
+                      <p className="text-[11px] text-slate-500 truncate max-w-full">{liveLeaderboard[2].testTitle}</p>
+                      <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 w-full flex justify-around text-xs">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-medium">Scaled UTME</span>
+                          <span className="text-base font-black text-amber-700 dark:text-amber-500">
+                            {Math.round((liveLeaderboard[2].score / (liveLeaderboard[2].totalQuestions || 1)) * 400)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-medium">Accuracy</span>
+                          <span className="text-base font-black text-emerald-600">
+                            {liveLeaderboard[2].percentage}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Complete Leaderboard Table */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xs">
+                  <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                        All Ranked Candidate Exams ({liveLeaderboard.length})
+                      </h4>
+                      <p className="text-xs text-slate-500">Live feed updated in real time</p>
+                    </div>
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Live Feed
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                        <tr>
+                          <th className="py-2.5 px-4 font-semibold w-16 text-center">Rank</th>
+                          <th className="py-2.5 px-4 font-semibold">Candidate</th>
+                          <th className="py-2.5 px-4 font-semibold">Test Mode / Title</th>
+                          <th className="py-2.5 px-4 font-semibold text-center">Score</th>
+                          <th className="py-2.5 px-4 font-semibold text-right">Scaled UTME</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {liveLeaderboard.map((item, idx) => {
+                          const scaled = Math.round((item.score / (item.totalQuestions || 1)) * 400);
+                          return (
+                            <tr key={item.id || idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                              <td className="py-3 px-4 text-center font-bold text-slate-500">
+                                {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="font-bold text-slate-900 dark:text-white block">
+                                  {item.studentName || item.studentEmail?.split('@')[0] || 'UTME Candidate'}
+                                </span>
+                                {item.studentEmail && (
+                                  <span className="text-[11px] text-slate-400 block font-mono">
+                                    {item.studentEmail}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="text-slate-700 dark:text-slate-300 font-medium block">
+                                  {item.testTitle}
+                                </span>
+                                <span className="text-[10px] text-slate-400 capitalize">
+                                  {item.testType} Practice
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-center text-slate-600 dark:text-slate-300 font-semibold">
+                                {item.score} / {item.totalQuestions} ({item.percentage}%)
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <span className={`font-black text-sm ${scaled >= 300 ? 'text-emerald-600 dark:text-emerald-400' : scaled >= 250 ? 'text-blue-600 dark:text-blue-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                                  {scaled}
+                                </span>
+                                <span className="text-[10px] text-slate-400"> / 400</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {liveLeaderboard.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="py-8 text-center text-slate-400 text-xs">
+                              No candidate tests recorded yet. Take an exam to claim the #1 rank!
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Upper Footer: Official WhatsApp Channel Banner */}
             <div className="mt-8 rounded-2xl overflow-hidden bg-gradient-to-r from-[#075e54] via-[#0f766e] to-[#064e3b] text-white p-5 sm:p-7 shadow-xs border border-emerald-600/40 relative">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 relative z-10">
@@ -1414,11 +1622,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       </div>
 
       {/* Native Mobile Bottom Navigation Bar (Visible only on mobile devices < md) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800 px-1.5 py-1.5 flex items-center justify-around shadow-lg">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800 px-1 py-1.5 flex items-center justify-around shadow-lg">
         {[
           { id: 'Home', icon: Home, label: 'Home' },
           { id: 'Novels', icon: BookMarked, label: 'Novels' },
           { id: 'Test', icon: Monitor, label: 'CBT' },
+          { id: 'Leaderboard', icon: Trophy, label: 'Leaders' },
           { id: 'Archive', icon: BookOpen, label: '1978-2026' },
           { id: 'History', icon: Clock, label: 'History' },
         ].map((item) => {

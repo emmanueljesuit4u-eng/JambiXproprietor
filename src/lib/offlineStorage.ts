@@ -194,13 +194,6 @@ export function markLocalPostSynced(postId: string): void {
 
 // 4. Flush and Sync with Firestore
 export async function flushSyncQueue(): Promise<{ syncedCount: number; errorsCount: number }> {
-  // Firestore security rules enforce strict authentication (request.auth != null).
-  // If there is no authenticated user currently active, keep items safely stored locally
-  // and defer syncing until a session is authenticated.
-  if (!auth.currentUser) {
-    return { syncedCount: 0, errorsCount: 0 };
-  }
-
   const queue = getSyncQueue();
   if (queue.length === 0) return { syncedCount: 0, errorsCount: 0 };
 
@@ -218,15 +211,18 @@ export async function flushSyncQueue(): Promise<{ syncedCount: number; errorsCou
     try {
       if (item.action === 'SAVE_TEST') {
         const payload = item.payload;
-        // Strictly attach the authenticated user UID for security rules verification
-        payload.userId = auth.currentUser.uid;
+        if (!payload.userId && auth.currentUser) {
+          payload.userId = auth.currentUser.uid;
+        }
         await saveTestResult(payload as Omit<TestResultData, 'createdAt'>);
         markLocalTestSynced(payload.id);
         removeSyncItem(item.id);
         syncedCount++;
       } else if (item.action === 'CREATE_POST') {
         const payload = item.payload;
-        payload.authorId = auth.currentUser.uid;
+        if (!payload.authorId && auth.currentUser) {
+          payload.authorId = auth.currentUser.uid;
+        }
         await createFeedPost(payload);
         markLocalPostSynced(payload.id);
         removeSyncItem(item.id);

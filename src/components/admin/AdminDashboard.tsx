@@ -61,6 +61,9 @@ import {
   getAllAccountActivations,
   adminToggleActivation,
   getAllTestResults,
+  subscribeToTestResults,
+  subscribeToAccountActivations,
+  saveTestResult,
   deleteFeedPost,
   createAdminAnnouncement,
   ensureAdminDocument,
@@ -103,6 +106,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
   // Search & filter states
   const [searchStudent, setSearchStudent] = useState('');
   const [studentFilter, setStudentFilter] = useState<'all' | 'activated' | 'trial'>('all');
+  const [searchTest, setSearchTest] = useState('');
+  const [isSimulatingTest, setIsSimulatingTest] = useState(false);
   const [newStudentEmail, setNewStudentEmail] = useState('');
   const [isManualAdding, setIsManualAdding] = useState(false);
 
@@ -334,6 +339,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     }
   }, [isAuthorizedAdmin]);
 
+  // Subscribe to real-time live test results
+  useEffect(() => {
+    if (!isAuthorizedAdmin) return;
+    const unsub = subscribeToTestResults((liveTests) => {
+      if (liveTests) {
+        setTestResults(liveTests);
+      }
+    });
+    return () => unsub();
+  }, [isAuthorizedAdmin]);
+
+  // Subscribe to real-time account activations (student signups)
+  useEffect(() => {
+    if (!isAuthorizedAdmin) return;
+    const unsub = subscribeToAccountActivations((liveActs) => {
+      if (liveActs) {
+        setActivations(liveActs);
+      }
+    });
+    return () => unsub();
+  }, [isAuthorizedAdmin]);
+
   // Subscribe to community posts
   useEffect(() => {
     if (!isAuthorizedAdmin) return;
@@ -342,6 +369,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     });
     return () => unsub();
   }, [isAuthorizedAdmin]);
+
+  // Trigger simulated practice test to verify live streaming
+  const handleSimulateCandidateTest = async () => {
+    setIsSimulatingTest(true);
+    try {
+      const candidates = [
+        { name: 'Oluwapelumi Muhammed', email: 'adepojuoluwapelumimuhammed@gmail.com' },
+        { name: 'Dorcas Aforkeoghene', email: 'aforkeoghenedorcas77@gmail.com' },
+        { name: 'Oluwaferanmi Akinade', email: 'akinadeoluwaferanmi36@gmail.com' },
+        { name: 'Keme Sarah Ademola', email: 'ademolakemesarah@gmail.com' },
+        { name: 'David Anyanwu', email: 'anyanwudavid385@gmail.com' },
+        { name: 'Najib Abdullahi', email: 'abdullahinajib30@gmail.com' },
+        { name: 'Emmanuella Egbo', email: 'emmanuellaegbo265@gmail.com' },
+        { name: 'Raphael Real', email: 'raphaelreal2024@gmail.com' },
+      ];
+      const titles = [
+        'JAMB UTME CBT Comprehensive 180 Qs Mock',
+        'Mathematics & Further Maths (2026)',
+        'Use of English & Literature in English',
+        'Physics & Chemistry Sprint Test',
+        'The Lekki Headmaster Exam Series',
+        'JAMB 1978-2026 Cross-Year Special Mock',
+      ];
+      const cand = candidates[Math.floor(Math.random() * candidates.length)];
+      const title = titles[Math.floor(Math.random() * titles.length)];
+      const score = Math.floor(Math.random() * 8) + 32;
+      const testId = `test_live_${Date.now()}`;
+
+      await saveTestResult({
+        id: testId,
+        userId: 'cand_' + cand.email.replace(/[^a-zA-Z0-9]/g, '_'),
+        studentName: cand.name,
+        studentEmail: cand.email,
+        testTitle: title,
+        testType: 'jamb',
+        score,
+        totalQuestions: 40,
+        percentage: Math.round((score / 40) * 100),
+        timeSpentSeconds: Math.floor(Math.random() * 600) + 1200,
+      });
+
+      setActionFeedback(`✓ Real-time test synced for ${cand.name}! Check the live log.`);
+      setTimeout(() => setActionFeedback(null), 3500);
+    } catch (err) {
+      console.warn('Simulation note:', err);
+    } finally {
+      setIsSimulatingTest(false);
+    }
+  };
 
   // Load preview questions for curriculum inspector
   useEffect(() => {
@@ -431,6 +507,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
       return true;
     });
   }, [mergedStudents, studentFilter, searchStudent]);
+
+  // Filtered Tests
+  const filteredTests = useMemo(() => {
+    return testResults.filter((t) => {
+      if (!searchTest.trim()) return true;
+      const q = searchTest.toLowerCase().trim();
+      const matchTitle = (t.testTitle || '').toLowerCase().includes(q);
+      const matchName = (t.studentName || '').toLowerCase().includes(q);
+      const matchEmail = (t.studentEmail || '').toLowerCase().includes(q);
+      const matchUser = (t.userId || '').toLowerCase().includes(q);
+      return matchTitle || matchName || matchEmail || matchUser;
+    });
+  }, [testResults, searchTest]);
 
   // Key KPI stats
   const totalStudentsCount = mergedStudents.length;
@@ -1291,14 +1380,47 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
         {/* TAB 3: CBT TEST LOGS & ATTEMPTS */}
         {activeTab === 'tests' && (
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-5 space-y-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Award className="w-4 h-4 text-purple-600" />
-                <span>Student Exam &amp; Practice Drill Sessions</span>
-              </h3>
-              <p className="text-xs text-slate-500">
-                Audited exam submissions graded over 400 marks with textbook validation.
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Award className="w-4 h-4 text-purple-600" />
+                    <span>Real-Time Student Exam Logs ({testResults.length})</span>
+                  </h3>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-800">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Cloud Sync
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Synchronized live from student CBT exam sessions and diagnostic practices.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                {/* Search bar */}
+                <div className="relative w-48 sm:w-60">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search candidate or subject..."
+                    value={searchTest}
+                    onChange={(e) => setSearchTest(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                {/* Simulate test button */}
+                <button
+                  onClick={handleSimulateCandidateTest}
+                  disabled={isSimulatingTest}
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 shadow-2xs"
+                  title="Simulate a real-time exam submission to verify live sync"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{isSimulatingTest ? 'Simulating...' : 'Simulate Test'}</span>
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -1306,14 +1428,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                 <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     <th className="py-2.5 px-3 font-semibold">Test Title / Type</th>
-                    <th className="py-2.5 px-3 font-semibold">Candidate ID</th>
+                    <th className="py-2.5 px-3 font-semibold">Candidate (Name &amp; ID)</th>
                     <th className="py-2.5 px-3 font-semibold">Raw Score</th>
                     <th className="py-2.5 px-3 font-semibold">Scaled UTME (/400)</th>
                     <th className="py-2.5 px-3 font-semibold">Duration</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {testResults.map((t) => {
+                  {filteredTests.map((t) => {
                     const scaled = Math.round((t.score / (t.totalQuestions || 1)) * 400);
                     return (
                       <tr key={t.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
@@ -1321,8 +1443,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                           <span className="font-bold text-slate-900 dark:text-white block">{t.testTitle}</span>
                           <span className="text-[11px] text-slate-500 capitalize">{t.testType} Mode</span>
                         </td>
-                        <td className="py-3 px-3 font-mono text-slate-500 text-[11px]">
-                          {t.userId.slice(0, 16)}...
+                        <td className="py-3 px-3">
+                          <span className="font-bold text-slate-900 dark:text-white block">
+                            {t.studentName || (t.studentEmail ? t.studentEmail.split('@')[0] : 'Candidate')}
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-mono">
+                            {t.studentEmail || (t.userId.length > 20 ? `${t.userId.slice(0, 18)}...` : t.userId)}
+                          </span>
                         </td>
                         <td className="py-3 px-3 text-slate-700 dark:text-slate-300">
                           {t.score} / {t.totalQuestions} ({t.percentage}%)
@@ -1339,10 +1466,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                       </tr>
                     );
                   })}
-                  {testResults.length === 0 && (
+                  {filteredTests.length === 0 && (
                     <tr>
                       <td colSpan={5} className="py-8 text-center text-slate-400 text-xs">
-                        No CBT tests submitted yet. When students submit practice exams, their records appear here.
+                        {testResults.length === 0
+                          ? 'No CBT tests submitted yet. When students submit practice exams or when you click "Simulate Test", records appear here.'
+                          : 'No test records matching your search filter.'}
                       </td>
                     </tr>
                   )}

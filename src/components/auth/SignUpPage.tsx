@@ -184,7 +184,12 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
       setSubmissionFeedback('Account created successfully! Welcome to JambiX.');
       setTimeout(() => {
         const cleanEmail = email.trim();
-        getOrCreateAccountActivation(cleanEmail).catch((err) =>
+        getOrCreateAccountActivation(cleanEmail, {
+          fullName: fullName.trim(),
+          phoneNumber: phoneNumber.trim(),
+          targetScore: 320,
+          preferredInstitution: 'University of Lagos (UNILAG)',
+        }).catch((err) =>
           console.warn('Initial cloud activation registration sync:', err)
         );
         saveActivationRecord({

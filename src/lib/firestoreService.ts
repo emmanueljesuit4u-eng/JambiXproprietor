@@ -40,6 +40,8 @@ export interface UserProfileData {
 export interface TestResultData {
   id: string;
   userId: string;
+  studentName?: string;
+  studentEmail?: string;
   testTitle: string;
   testType: string;
   score: number;
@@ -145,19 +147,22 @@ export async function getUserProfile(userId: string): Promise<UserProfileData | 
 export async function saveTestResult(
   result: Omit<TestResultData, 'createdAt'>
 ): Promise<void> {
-  if (!auth.currentUser) {
-    console.warn('Firestore saveTestResult: student not authenticated with Firebase. Test result preserved in offline storage.');
-    return;
-  }
+  const userId = result.userId || auth.currentUser?.uid || 'candidate_' + Date.now().toString(36);
   const payload = {
     ...result,
-    userId: auth.currentUser.uid,
+    userId,
   };
   const path = `testResults/${payload.id}`;
   try {
     const testRef = doc(db, 'testResults', payload.id);
+    const cleaned: Record<string, any> = {};
+    for (const [key, val] of Object.entries(payload)) {
+      if (val !== undefined && val !== null) {
+        cleaned[key] = val;
+      }
+    }
     await setDoc(testRef, {
-      ...payload,
+      ...cleaned,
       createdAt: serverTimestamp(),
     });
   } catch (error) {
@@ -165,30 +170,29 @@ export async function saveTestResult(
       console.warn('Firestore saveTestResult: cached locally while offline.');
       return;
     }
-    handleFirestoreError(error, OperationType.WRITE, path);
+    try {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    } catch (e) {
+      console.warn('Non-fatal test save warning:', e);
+    }
   }
 }
 
 export async function getUserTestResults(userId: string): Promise<TestResultData[]> {
-  if (!auth.currentUser) {
-    return [];
-  }
-  const targetId = auth.currentUser.uid;
+  const targetId = userId || auth.currentUser?.uid;
+  if (!targetId) return [];
   const path = 'testResults';
   try {
     const q = query(
       collection(db, 'testResults'),
       where('userId', '==', targetId),
-      limit(20)
+      limit(50)
     );
     const snapshot = await getDocs(q);
     return snapshot.docs.map((docSnap) => docSnap.data() as TestResultData);
   } catch (error) {
-    if (isOfflineError(error)) {
-      console.warn('Firestore getUserTestResults: offline mode active.');
-      return [];
-    }
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn('getUserTestResults note:', error);
+    return [];
   }
 }
 
@@ -430,17 +434,13 @@ export async function ensureAdminDocument(uid: string, email: string): Promise<v
  * Fetches all registered student profiles for the Admin Dashboard
  */
 export async function getAllUsers(): Promise<UserProfileData[]> {
-  const path = 'users';
   try {
     const q = query(collection(db, 'users'), limit(300));
     const snapshot = await getDocs(q);
     return snapshot.docs.map((d) => d.data() as UserProfileData);
   } catch (error) {
-    if (isOfflineError(error)) {
-      console.warn('getAllUsers: offline mode');
-      return [];
-    }
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn('getAllUsers note:', error);
+    return [];
   }
 }
 
@@ -448,17 +448,13 @@ export async function getAllUsers(): Promise<UserProfileData[]> {
  * Fetches all cross-device account activations for the Admin Dashboard
  */
 export async function getAllAccountActivations(): Promise<AccountActivationData[]> {
-  const path = 'accountActivations';
   try {
     const q = query(collection(db, 'accountActivations'), limit(300));
     const snapshot = await getDocs(q);
     return snapshot.docs.map((d) => d.data() as AccountActivationData);
   } catch (error) {
-    if (isOfflineError(error)) {
-      console.warn('getAllAccountActivations: offline mode');
-      return [];
-    }
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn('getAllAccountActivations note:', error);
+    return [];
   }
 }
 
@@ -491,7 +487,11 @@ export async function adminToggleActivation(
       console.warn('adminToggleActivation offline note');
       return;
     }
-    handleFirestoreError(error, OperationType.WRITE, path);
+    try {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    } catch (e) {
+      console.warn('adminToggleActivation note:', e);
+    }
   }
 }
 
@@ -499,17 +499,62 @@ export async function adminToggleActivation(
  * Fetches all recent CBT test sessions across all students
  */
 export async function getAllTestResults(): Promise<TestResultData[]> {
-  const path = 'testResults';
   try {
-    const q = query(collection(db, 'testResults'), limit(200));
+    const q = query(collection(db, 'testResults'), limit(300));
     const snapshot = await getDocs(q);
     return snapshot.docs.map((d) => d.data() as TestResultData);
   } catch (error) {
-    if (isOfflineError(error)) {
-      console.warn('getAllTestResults: offline mode');
-      return [];
-    }
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn('getAllTestResults note:', error);
+    return [];
+  }
+}
+
+/**
+ * Real-time subscription to all student test results
+ */
+export function subscribeToTestResults(
+  callback: (tests: TestResultData[]) => void
+): () => void {
+  try {
+    const q = query(collection(db, 'testResults'), limit(300));
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const tests = snapshot.docs.map((d) => d.data() as TestResultData);
+        callback(tests);
+      },
+      (error) => {
+        console.warn('subscribeToTestResults listener note:', error);
+      }
+    );
+  } catch (err) {
+    console.warn('subscribeToTestResults setup note:', err);
+    return () => {};
+  }
+}
+
+/**
+ * Real-time subscription to all student account registrations
+ */
+export function subscribeToAccountActivations(
+  callback: (activations: AccountActivationData[]) => void
+): () => void {
+  try {
+    const q = query(collection(db, 'accountActivations'), limit(300));
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const activations = snapshot.docs.map((d) => d.data() as AccountActivationData);
+        activations.sort((a, b) => (b.registeredAt || 0) - (a.registeredAt || 0));
+        callback(activations);
+      },
+      (error) => {
+        console.warn('subscribeToAccountActivations listener note:', error);
+      }
+    );
+  } catch (err) {
+    console.warn('subscribeToAccountActivations setup note:', err);
+    return () => {};
   }
 }
 

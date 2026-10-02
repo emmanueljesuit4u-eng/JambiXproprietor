@@ -32,6 +32,7 @@ import { auth } from '../../lib/firebase';
 import { saveTestResult } from '../../lib/firestoreService';
 import { saveLocalTestResult } from '../../lib/offlineStorage';
 import { useNetwork } from '../../context/NetworkContext';
+import { useAuth } from '../../context/AuthContext';
 import {
   assembleUtmeTest,
   calculateJambGrade,
@@ -66,6 +67,7 @@ export const CbtTestModal: React.FC<CbtTestModalProps> = ({
   initialYear,
 }) => {
   const { effectiveOnline } = useNetwork();
+  const { currentUser, studentProfile, localStudent } = useAuth();
 
   // Test Configuration State
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([
@@ -314,16 +316,24 @@ export const CbtTestModal: React.FC<CbtTestModalProps> = ({
     const testId = `test_${Date.now()}`;
     const timeSpent = duration * 60 - timeLeftSeconds;
 
+    const studentId = currentUser?.uid || studentProfile?.id || (localStudent?.email ? `candidate_${localStudent.email.replace(/[^a-zA-Z0-9]/g, '_')}` : '') || `candidate_${Date.now().toString(36)}`;
+    const studentName = studentProfile?.fullName || currentUser?.displayName || localStudent?.name || 'UTME Candidate';
+    const studentEmail = studentProfile?.email || currentUser?.email || localStudent?.email || '';
+
+    const formattedTitle =
+      selectedYear === 'random'
+        ? `${testTitle} (1978-2026 Cross-Year Mix)`
+        : `${testTitle} (${selectedYear} UTME)`;
+
     let synced = false;
-    if (auth.currentUser && effectiveOnline) {
+    if (effectiveOnline) {
       try {
         await saveTestResult({
           id: testId,
-          userId: auth.currentUser.uid,
-          testTitle:
-            selectedYear === 'random'
-              ? `${testTitle} (1978-2026 Cross-Year Mix)`
-              : `${testTitle} (${selectedYear} UTME)`,
+          userId: studentId,
+          studentName,
+          studentEmail,
+          testTitle: formattedTitle,
           testType,
           score: grade.totalRawCorrect, // Conforms strictly to score <= totalQuestions rule
           totalQuestions: grade.totalQuestions,
@@ -338,11 +348,8 @@ export const CbtTestModal: React.FC<CbtTestModalProps> = ({
 
     saveLocalTestResult({
       id: testId,
-      userId: auth.currentUser?.uid,
-      testTitle:
-        selectedYear === 'random'
-          ? `${testTitle} (1978-2026 Cross-Year Mix)`
-          : `${testTitle} (${selectedYear} UTME)`,
+      userId: studentId,
+      testTitle: formattedTitle,
       testType,
       score: grade.totalRawCorrect,
       jambScore: grade.totalJambScore,

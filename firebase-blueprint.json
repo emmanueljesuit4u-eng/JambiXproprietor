@@ -212,12 +212,94 @@
           "description": "OPay phone number or account used for payment",
           "maxLength": 100
         },
+        "fullName": {
+          "type": "string",
+          "description": "Candidate full name for administrative synchronization",
+          "maxLength": 100
+        },
+        "phoneNumber": {
+          "type": "string",
+          "description": "Candidate contact phone number",
+          "maxLength": 20
+        },
+        "targetScore": {
+          "type": "number",
+          "description": "Target UTME aggregate score"
+        },
+        "preferredInstitution": {
+          "type": "string",
+          "description": "Candidate target institution choice",
+          "maxLength": 100
+        },
         "isEmailVerified": {
           "type": "boolean",
           "description": "Whether the student email has been verified"
         }
       },
       "required": ["id", "email", "registeredAt", "isActivated"]
+    },
+    "LeaderboardEntry": {
+      "title": "LeaderboardEntry",
+      "description": "Live national ranking entry for CBT candidates",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique entry identifier",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "studentName": {
+          "type": "string",
+          "description": "Candidate full name",
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "description": "Candidate registered email",
+          "maxLength": 100
+        },
+        "testTitle": {
+          "type": "string",
+          "description": "Name of the CBT simulator module",
+          "maxLength": 120
+        },
+        "subject": {
+          "type": "string",
+          "description": "Subject category or aggregate",
+          "maxLength": 50
+        },
+        "score": {
+          "type": "number",
+          "description": "Correct answers score"
+        },
+        "totalQuestions": {
+          "type": "number",
+          "description": "Total test question count"
+        },
+        "percentage": {
+          "type": "number",
+          "description": "Percentage score (0 - 100)"
+        },
+        "jambAggregate": {
+          "type": "number",
+          "description": "Projected aggregate score scaled to 400"
+        },
+        "preferredInstitution": {
+          "type": "string",
+          "description": "Target institution choice",
+          "maxLength": 100
+        },
+        "timestamp": {
+          "type": "number",
+          "description": "Epoch timestamp in milliseconds when test was submitted"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Server timestamp"
+        }
+      },
+      "required": ["id", "studentName", "testTitle", "score", "totalQuestions", "percentage", "timestamp"]
     }
   },
   "firestore": {
@@ -236,6 +318,10 @@
     "/accountActivations/{activationId}": {
       "schema": "AccountActivation",
       "description": "Authoritative cross-device registration countdown and activation status"
+    },
+    "/leaderboard/{entryId}": {
+      "schema": "LeaderboardEntry",
+      "description": "Live national student leaderboard rankings"
     }
   }
 }
