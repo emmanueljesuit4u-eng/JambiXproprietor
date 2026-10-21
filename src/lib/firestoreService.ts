@@ -298,7 +298,13 @@ export function sanitizeActivationId(email: string): string {
  * If already registered on another device, returns the original registeredAt so countdown continues seamlessly!
  */
 export async function getOrCreateAccountActivation(
-  email: string
+  email: string,
+  profileData?: {
+    fullName?: string;
+    phoneNumber?: string;
+    targetScore?: number;
+    preferredInstitution?: string;
+  }
 ): Promise<AccountActivationData | null> {
   if (!email) return null;
   const cleanEmail = email.toLowerCase().trim();
@@ -307,6 +313,27 @@ export async function getOrCreateAccountActivation(
   try {
     const actRef = doc(db, 'accountActivations', activationId);
     const snap = await getDoc(actRef);
+
+    if (profileData && profileData.fullName) {
+      try {
+        const userRef = doc(db, 'users', activationId);
+        await setDoc(userRef, {
+          id: activationId,
+          email: cleanEmail,
+          fullName: profileData.fullName,
+          phoneNumber: profileData.phoneNumber || '',
+          targetScore: profileData.targetScore || 320,
+          preferredInstitution: profileData.preferredInstitution || 'University of Lagos (UNILAG)',
+          registeredAt: Date.now(),
+          isActivated: false,
+          isEmailVerified: true,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      } catch (err) {
+        console.warn('User profile sync note:', err);
+      }
+    }
 
     if (snap.exists()) {
       return snap.data() as AccountActivationData;
@@ -500,9 +527,15 @@ export async function adminToggleActivation(
  */
 export async function getAllTestResults(): Promise<TestResultData[]> {
   try {
-    const q = query(collection(db, 'testResults'), limit(300));
+    const q = query(collection(db, 'testResults'), limit(1000));
     const snapshot = await getDocs(q);
-    return snapshot.docs.map((d) => d.data() as TestResultData);
+    const tests = snapshot.docs.map((d) => d.data() as TestResultData);
+    tests.sort((a, b) => {
+      const aTime = (a.createdAt as any)?.toMillis ? (a.createdAt as any).toMillis() : (a.createdAt as any)?.seconds ? (a.createdAt as any).seconds * 1000 : (parseInt(a.id.replace(/\D/g, '')) || 0);
+      const bTime = (b.createdAt as any)?.toMillis ? (b.createdAt as any).toMillis() : (b.createdAt as any)?.seconds ? (b.createdAt as any).seconds * 1000 : (parseInt(b.id.replace(/\D/g, '')) || 0);
+      return bTime - aTime;
+    });
+    return tests;
   } catch (error) {
     console.warn('getAllTestResults note:', error);
     return [];
@@ -516,11 +549,16 @@ export function subscribeToTestResults(
   callback: (tests: TestResultData[]) => void
 ): () => void {
   try {
-    const q = query(collection(db, 'testResults'), limit(300));
+    const q = query(collection(db, 'testResults'), limit(1000));
     return onSnapshot(
       q,
       (snapshot) => {
         const tests = snapshot.docs.map((d) => d.data() as TestResultData);
+        tests.sort((a, b) => {
+          const aTime = (a.createdAt as any)?.toMillis ? (a.createdAt as any).toMillis() : (a.createdAt as any)?.seconds ? (a.createdAt as any).seconds * 1000 : (parseInt(a.id.replace(/\D/g, '')) || 0);
+          const bTime = (b.createdAt as any)?.toMillis ? (b.createdAt as any).toMillis() : (b.createdAt as any)?.seconds ? (b.createdAt as any).seconds * 1000 : (parseInt(b.id.replace(/\D/g, '')) || 0);
+          return bTime - aTime;
+        });
         callback(tests);
       },
       (error) => {

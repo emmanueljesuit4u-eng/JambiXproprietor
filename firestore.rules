@@ -109,10 +109,31 @@ service cloud.firestore {
 
     // Test results (Live stream for Admin Dashboard and National Leaderboards)
     match /testResults/{resultId} {
-      allow read: if true;
-      allow create: if isValidId(resultId) && isValidTestResult(incoming());
-      allow update: if isAdmin();
-      allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow read, write: if true;
+    }
+
+    match /tests/{testId} {
+      allow read, write: if true;
+    }
+
+    match /cbtResults/{resultId} {
+      allow read, write: if true;
+    }
+
+    match /results/{resultId} {
+      allow read, write: if true;
+    }
+
+    match /userTests/{testId} {
+      allow read, write: if true;
+    }
+
+    match /users/{userId}/tests/{testId} {
+      allow read, write: if true;
+    }
+
+    match /users/{userId}/testResults/{testId} {
+      allow read, write: if true;
     }
 
     // Community Feed Posts

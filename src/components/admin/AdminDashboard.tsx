@@ -479,9 +479,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     // Count tests
     testResults.forEach((t) => {
       // Find matching user or email
-      const matchedUser = students.find((s) => s.id === t.userId);
-      if (matchedUser && matchedUser.email) {
-        const item = map.get(matchedUser.email.toLowerCase().trim());
+      const email = t.studentEmail?.toLowerCase().trim() || students.find((s) => s.id === t.userId)?.email?.toLowerCase().trim();
+      if (email) {
+        const item = map.get(email);
         if (item) {
           item.testCount += 1;
         }
