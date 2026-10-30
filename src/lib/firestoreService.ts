@@ -597,6 +597,30 @@ export function subscribeToAccountActivations(
 }
 
 /**
+ * Real-time subscription to all student registered profiles
+ */
+export function subscribeToUsers(
+  callback: (users: UserProfileData[]) => void
+): () => void {
+  try {
+    const q = query(collection(db, 'users'), limit(500));
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const users = snapshot.docs.map((d) => d.data() as UserProfileData);
+        callback(users);
+      },
+      (error) => {
+        console.warn('subscribeToUsers listener note:', error);
+      }
+    );
+  } catch (err) {
+    console.warn('subscribeToUsers setup note:', err);
+    return () => {};
+  }
+}
+
+/**
  * Admin can delete an inappropriate or spam community post
  */
 export async function deleteFeedPost(postId: string): Promise<void> {

@@ -63,6 +63,7 @@ import {
   getAllTestResults,
   subscribeToTestResults,
   subscribeToAccountActivations,
+  subscribeToUsers,
   saveTestResult,
   deleteFeedPost,
   createAdminAnnouncement,
@@ -356,6 +357,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     const unsub = subscribeToAccountActivations((liveActs) => {
       if (liveActs) {
         setActivations(liveActs);
+      }
+    });
+    return () => unsub();
+  }, [isAuthorizedAdmin]);
+
+  // Subscribe to real-time student user profiles
+  useEffect(() => {
+    if (!isAuthorizedAdmin) return;
+    const unsub = subscribeToUsers((liveUsers) => {
+      if (liveUsers) {
+        setStudents(liveUsers);
       }
     });
     return () => unsub();
