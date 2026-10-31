@@ -300,6 +300,57 @@
         }
       },
       "required": ["id", "studentName", "testTitle", "score", "totalQuestions", "percentage", "timestamp"]
+    },
+    "ActiveSession": {
+      "title": "ActiveSession",
+      "description": "Real-time presence session tracking currently logged in and active candidates",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique session identifier",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Candidate UID or sanitized email",
+          "maxLength": 128
+        },
+        "userName": {
+          "type": "string",
+          "description": "Candidate display name",
+          "maxLength": 100
+        },
+        "userEmail": {
+          "type": "string",
+          "description": "Candidate registered email",
+          "maxLength": 100
+        },
+        "currentView": {
+          "type": "string",
+          "description": "Current module or page being actively used",
+          "maxLength": 100
+        },
+        "device": {
+          "type": "string",
+          "description": "Device category (Desktop, Mobile, Tablet)",
+          "maxLength": 50
+        },
+        "lastActive": {
+          "type": "number",
+          "description": "Epoch timestamp in milliseconds of latest activity heartbeat"
+        },
+        "startedAt": {
+          "type": "number",
+          "description": "Epoch timestamp when session began"
+        },
+        "isOnline": {
+          "type": "boolean",
+          "description": "Whether session is currently active"
+        }
+      },
+      "required": ["id", "userId", "userName", "lastActive", "isOnline"]
     }
   },
   "firestore": {
@@ -322,6 +373,10 @@
     "/leaderboard/{entryId}": {
       "schema": "LeaderboardEntry",
       "description": "Live national student leaderboard rankings"
+    },
+    "/activeSessions/{sessionId}": {
+      "schema": "ActiveSession",
+      "description": "Live online session tracking for students and admins currently on the app"
     }
   }
 }

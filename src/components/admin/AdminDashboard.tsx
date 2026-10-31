@@ -44,6 +44,11 @@ import {
   EyeOff,
   KeyRound,
   Mail,
+  Activity,
+  Smartphone,
+  Laptop,
+  Radio,
+  Globe,
 } from 'lucide-react';
 import { auth } from '../../lib/firebase';
 import {
@@ -73,6 +78,9 @@ import {
   TestResultData,
   FeedPostData,
   subscribeToFeedPosts,
+  ActiveSessionData,
+  subscribeToActiveSessions,
+  updateSessionPresence,
 } from '../../lib/firestoreService';
 import {
   SUBJECT_CONFIGS,
@@ -93,13 +101,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
 
   // Active Admin Tabs
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'students' | 'tests' | 'questions' | 'feed' | 'security'
+    'overview' | 'sessions' | 'students' | 'tests' | 'questions' | 'feed' | 'security'
   >('overview');
 
   // Data states
   const [students, setStudents] = useState<UserProfileData[]>([]);
   const [activations, setActivations] = useState<AccountActivationData[]>([]);
   const [testResults, setTestResults] = useState<TestResultData[]>([]);
+  const [activeSessions, setActiveSessions] = useState<ActiveSessionData[]>([]);
   const [feedPosts, setFeedPosts] = useState<FeedPostData[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
@@ -108,7 +117,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
   const [searchStudent, setSearchStudent] = useState('');
   const [studentFilter, setStudentFilter] = useState<'all' | 'activated' | 'trial'>('all');
   const [searchTest, setSearchTest] = useState('');
+  const [searchSession, setSearchSession] = useState('');
+  const [sessionFilter, setSessionFilter] = useState<'all' | 'mobile' | 'desktop' | 'cbt'>('all');
   const [isSimulatingTest, setIsSimulatingTest] = useState(false);
+  const [isSimulatingSession, setIsSimulatingSession] = useState(false);
   const [newStudentEmail, setNewStudentEmail] = useState('');
   const [isManualAdding, setIsManualAdding] = useState(false);
 
@@ -382,6 +394,89 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     return () => unsub();
   }, [isAuthorizedAdmin]);
 
+  // Subscribe to real-time live active user sessions
+  useEffect(() => {
+    if (!isAuthorizedAdmin) return;
+    const unsub = subscribeToActiveSessions((sessions) => {
+      setActiveSessions(sessions);
+    });
+    return () => unsub();
+  }, [isAuthorizedAdmin]);
+
+  // Admin own presence heartbeat
+  useEffect(() => {
+    if (!isAuthorizedAdmin) return;
+    const adminSessionId = `admin_${Date.now().toString(36)}`;
+    const adminEmail = currentUser?.email || localAdminUser?.email || ADMIN_EMAIL;
+
+    const pulseAdmin = () => {
+      updateSessionPresence({
+        id: adminSessionId,
+        userId: currentUser?.uid || 'super_admin_id',
+        userName: `Admin (${adminEmail.split('@')[0]})`,
+        userEmail: adminEmail,
+        currentView: `Admin Console (${activeTab})`,
+        device: 'Desktop (Admin Workstation)',
+        lastActive: Date.now(),
+        startedAt: Date.now(),
+        isOnline: true,
+      });
+    };
+
+    pulseAdmin();
+    const interval = setInterval(pulseAdmin, 30000);
+    return () => clearInterval(interval);
+  }, [isAuthorizedAdmin, activeTab, currentUser, localAdminUser]);
+
+  // Simulate an active student connecting
+  const handleSimulateLiveStudentSession = async () => {
+    setIsSimulatingSession(true);
+    try {
+      const candidates = [
+        { name: 'Oluwapelumi Muhammed', email: 'adepojuoluwapelumimuhammed@gmail.com' },
+        { name: 'Dorcas Aforkeoghene', email: 'aforkeoghenedorcas77@gmail.com' },
+        { name: 'Oluwaferanmi Akinade', email: 'akinadeoluwaferanmi36@gmail.com' },
+        { name: 'David Anyanwu', email: 'anyanwudavid385@gmail.com' },
+        { name: 'Najib Abdullahi', email: 'abdullahinajib30@gmail.com' },
+        { name: 'Emmanuella Egbo', email: 'emmanuellaegbo265@gmail.com' },
+        { name: 'Jesse Okoli', email: 'pabloriche2000@gmail.com' },
+        { name: 'Chukwudi Adeleke', email: 'adeleke.chukwudi@gmail.com' },
+      ];
+      const activities = [
+        'CBT Practice (Biology 2026)',
+        'Reading The Lekki Headmaster',
+        '1978-2026 Past Questions Vault',
+        'Physics & Chemistry Diagnostic Mock',
+        'Studying Use of English Syllabus',
+        'Reviewing Test Performance',
+      ];
+      const devices = ['Mobile (Android)', 'Mobile (iOS)', 'Desktop (Chrome)', 'Tablet (iPad)'];
+      const cand = candidates[Math.floor(Math.random() * candidates.length)];
+      const act = activities[Math.floor(Math.random() * activities.length)];
+      const dev = devices[Math.floor(Math.random() * devices.length)];
+      const sessId = `sess_sim_${cand.email.split('@')[0]}_${Date.now()}`;
+
+      await updateSessionPresence({
+        id: sessId,
+        userId: 'cand_' + cand.email.replace(/[^a-zA-Z0-9]/g, '_'),
+        userName: cand.name,
+        userEmail: cand.email,
+        currentView: act,
+        device: dev,
+        lastActive: Date.now(),
+        startedAt: Date.now() - Math.floor(Math.random() * 900000),
+        isOnline: true,
+      });
+
+      setActionFeedback(`✓ Real-time active session simulated for ${cand.name}!`);
+      setTimeout(() => setActionFeedback(null), 3500);
+    } catch (err) {
+      console.warn('Session simulation note:', err);
+    } finally {
+      setIsSimulatingSession(false);
+    }
+  };
+
   // Trigger simulated practice test to verify live streaming
   const handleSimulateCandidateTest = async () => {
     setIsSimulatingTest(true);
@@ -533,12 +628,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     });
   }, [testResults, searchTest]);
 
+  // Filtered Active Sessions
+  const filteredSessions = useMemo(() => {
+    return activeSessions.filter((s) => {
+      if (sessionFilter === 'mobile' && !s.device.toLowerCase().includes('mobile')) return false;
+      if (sessionFilter === 'desktop' && !s.device.toLowerCase().includes('desktop')) return false;
+      if (sessionFilter === 'cbt' && !s.currentView.toLowerCase().includes('cbt')) return false;
+      if (searchSession) {
+        const q = searchSession.toLowerCase().trim();
+        const matchName = (s.userName || '').toLowerCase().includes(q);
+        const matchEmail = (s.userEmail || '').toLowerCase().includes(q);
+        const matchView = (s.currentView || '').toLowerCase().includes(q);
+        const matchDev = (s.device || '').toLowerCase().includes(q);
+        return matchName || matchEmail || matchView || matchDev;
+      }
+      return true;
+    });
+  }, [activeSessions, searchSession, sessionFilter]);
+
   // Key KPI stats
   const totalStudentsCount = mergedStudents.length;
   const activatedCount = mergedStudents.filter((s) => s.isActivated).length;
   const pendingTrialCount = totalStudentsCount - activatedCount;
   const totalRevenueNgn = activatedCount * 2500;
   const totalTestsCount = testResults.length;
+  const liveOnlineCount = Math.max(activeSessions.length, 1);
   const averageScore = totalTestsCount > 0
     ? Math.round(testResults.reduce((acc, t) => acc + (t.score / (t.totalQuestions || 1)) * 400, 0) / totalTestsCount)
     : 248;
@@ -1012,7 +1126,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
       {/* Main Container */}
       <main className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 space-y-6 flex-1">
         {/* Top Hero & KPI Cards */}
-        <section className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+        <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
           {/* Card 1: Registered Students */}
           <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1">
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
@@ -1027,7 +1141,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
             </span>
           </div>
 
-          {/* Card 2: Activated Licenses */}
+          {/* Card 2: Live Online Active Users */}
+          <div
+            onClick={() => setActiveTab('sessions')}
+            className="p-4 bg-emerald-50/50 dark:bg-emerald-950/20 rounded-2xl border border-emerald-500/40 dark:border-emerald-500/30 shadow-2xs space-y-1 cursor-pointer hover:border-emerald-500 transition-all group"
+          >
+            <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-300">
+              <span className="text-[11px] font-bold uppercase tracking-wider">Live Online</span>
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              </span>
+            </div>
+            <div className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 flex items-baseline gap-2">
+              <span>{liveOnlineCount}</span>
+              <span className="text-[11px] font-bold text-emerald-700/60 dark:text-emerald-300/60">active now</span>
+            </div>
+            <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-1 group-hover:underline">
+              <Activity className="w-3 h-3" /> Monitor presence &rarr;
+            </span>
+          </div>
+
+          {/* Card 3: Activated Licenses */}
           <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1">
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
               <span className="text-[11px] font-bold uppercase tracking-wider">Activated Accounts</span>
@@ -1041,7 +1176,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
             </span>
           </div>
 
-          {/* Card 3: Platform Revenue */}
+          {/* Card 4: Platform Revenue */}
           <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1">
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
               <span className="text-[11px] font-bold uppercase tracking-wider">Gross Revenue</span>
@@ -1055,7 +1190,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
             </span>
           </div>
 
-          {/* Card 4: CBT Tests Completed */}
+          {/* Card 5: CBT Tests Completed */}
           <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1">
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
               <span className="text-[11px] font-bold uppercase tracking-wider">CBT Sessions</span>
@@ -1069,8 +1204,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
             </span>
           </div>
 
-          {/* Card 5: Past Questions Bank */}
-          <div className="col-span-2 lg:col-span-1 p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1">
+          {/* Card 6: Past Questions Bank */}
+          <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1">
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
               <span className="text-[11px] font-bold uppercase tracking-wider">UTME Vault</span>
               <BookOpen className="w-4 h-4 text-indigo-600" />
@@ -1088,6 +1223,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
         <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-slate-200 dark:border-slate-800">
           {[
             { id: 'overview', label: 'Overview & Metrics', icon: BarChart3 },
+            { id: 'sessions', label: `Live Sessions (${liveOnlineCount})`, icon: Activity },
             { id: 'students', label: `Students & Licensing (${totalStudentsCount})`, icon: Users },
             { id: 'tests', label: `CBT Test Logs (${totalTestsCount})`, icon: Award },
             { id: 'questions', label: 'Curriculum & Question Bank', icon: BookOpen },
@@ -1108,6 +1244,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
               >
                 <Icon className="w-4 h-4" />
                 <span>{tab.label}</span>
+                {tab.id === 'sessions' && liveOnlineCount > 0 && (
+                  <span className="relative flex h-2 w-2 ml-0.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+                  </span>
+                )}
               </button>
             );
           })}
@@ -1267,6 +1409,255 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                         </td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: REAL-TIME ACTIVE SESSIONS TRACKING */}
+        {activeTab === 'sessions' && (
+          <div className="space-y-6">
+            {/* Live Metrics Header Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-emerald-500/30 shadow-2xs space-y-1">
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                  <span className="text-[11px] font-bold uppercase tracking-wider">Concurrent Learners</span>
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                  </span>
+                </div>
+                <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400">
+                  {liveOnlineCount}
+                </div>
+                <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-medium">
+                  Active in past 3 minutes
+                </span>
+              </div>
+
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1">
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                  <span className="text-[11px] font-bold uppercase tracking-wider">Mobile Candidates</span>
+                  <Smartphone className="w-4 h-4 text-sky-600" />
+                </div>
+                <div className="text-3xl font-black text-slate-900 dark:text-white">
+                  {activeSessions.filter(s => s.device?.toLowerCase().includes('mobile')).length}
+                </div>
+                <span className="text-[11px] text-slate-500">
+                  Android & iOS smartphones
+                </span>
+              </div>
+
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1">
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                  <span className="text-[11px] font-bold uppercase tracking-wider">Desktop & Workstations</span>
+                  <Laptop className="w-4 h-4 text-indigo-600" />
+                </div>
+                <div className="text-3xl font-black text-slate-900 dark:text-white">
+                  {activeSessions.filter(s => s.device?.toLowerCase().includes('desktop')).length}
+                </div>
+                <span className="text-[11px] text-slate-500">
+                  Laptops & CBT center PCs
+                </span>
+              </div>
+
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1">
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                  <span className="text-[11px] font-bold uppercase tracking-wider">Taking CBT Tests</span>
+                  <Award className="w-4 h-4 text-purple-600" />
+                </div>
+                <div className="text-3xl font-black text-purple-600 dark:text-purple-400">
+                  {activeSessions.filter(s => s.currentView?.toLowerCase().includes('cbt')).length}
+                </div>
+                <span className="text-[11px] text-slate-500">
+                  Active test simulation sessions
+                </span>
+              </div>
+            </div>
+
+            {/* Sessions Table Card */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-5 space-y-4">
+              {/* Header with Title and Controls */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-emerald-600" />
+                    <span>Live Student Sessions & Presence Stream</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300">
+                      Live Firestore Sync
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Real-time heartbeat of candidates actively solving past questions, taking mock exams, and studying syllabi.
+                  </p>
+                </div>
+
+                {/* Filters, Search & Simulation Trigger */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Filter student or screen..."
+                      value={searchSession}
+                      onChange={(e) => setSearchSession(e.target.value)}
+                      className="pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white w-48 sm:w-56"
+                    />
+                  </div>
+
+                  {/* Device Filter */}
+                  <select
+                    value={sessionFilter}
+                    onChange={(e) => setSessionFilter(e.target.value as any)}
+                    className="px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                  >
+                    <option value="all">All Devices</option>
+                    <option value="mobile">Mobile Only</option>
+                    <option value="desktop">Desktop Only</option>
+                  </select>
+
+                  {/* Simulate Candidate Action */}
+                  <button
+                    onClick={handleSimulateLiveStudentSession}
+                    disabled={isSimulatingSession}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                    title="Simulate a candidate opening a test or past question"
+                  >
+                    <Radio className={`w-3.5 h-3.5 ${isSimulatingSession ? 'animate-spin' : ''}`} />
+                    <span>{isSimulatingSession ? 'Simulating...' : 'Simulate Learner Activity'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Real-time Sessions Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-bold">
+                    <tr>
+                      <th className="py-2.5 px-3">Student Candidate</th>
+                      <th className="py-2.5 px-3">Current Screen / Activity</th>
+                      <th className="py-2.5 px-3">Device & Client</th>
+                      <th className="py-2.5 px-3">Session Start</th>
+                      <th className="py-2.5 px-3">Last Heartbeat</th>
+                      <th className="py-2.5 px-3 text-right">Live Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
+                    {filteredSessions.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400 italic">
+                          No active sessions found matching your criteria.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredSessions.map((sess) => {
+                        const isLiveNow = sess.isOnline && (Date.now() - sess.lastActive < 180000);
+                        const isMobile = sess.device?.toLowerCase().includes('mobile');
+                        const isTablet = sess.device?.toLowerCase().includes('tablet');
+
+                        const getBadgeColor = (view?: string) => {
+                          const v = (view || '').toLowerCase();
+                          if (v.includes('cbt') || v.includes('mock') || v.includes('diagnostic')) {
+                            return 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800';
+                          }
+                          if (v.includes('vault') || v.includes('past')) {
+                            return 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+                          }
+                          if (v.includes('novel') || v.includes('headmaster')) {
+                            return 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800';
+                          }
+                          if (v.includes('admin')) {
+                            return 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800 font-black';
+                          }
+                          return 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+                        };
+
+                        const formatLastActive = (ts: number) => {
+                          const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+                          if (diffSec < 15) return 'Just now (live)';
+                          if (diffSec < 60) return `${diffSec}s ago`;
+                          const diffMin = Math.floor(diffSec / 60);
+                          return `${diffMin}m ago`;
+                        };
+
+                        const initials = sess.userName
+                          ? sess.userName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+                          : (sess.userEmail ? sess.userEmail.slice(0, 2).toUpperCase() : 'CD');
+
+                        return (
+                          <tr key={sess.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                            <td className="py-3 px-3">
+                              <div className="flex items-center gap-2.5">
+                                <div className="relative">
+                                  <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center font-bold text-[11px] text-slate-700 dark:text-slate-200">
+                                    {initials}
+                                  </div>
+                                  {isLiveNow && (
+                                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900" />
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="font-bold text-slate-900 dark:text-white truncate">
+                                    {sess.userName || 'Candidate'}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 truncate">
+                                    {sess.userEmail}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+
+                            <td className="py-3 px-3">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border ${getBadgeColor(sess.currentView)}`}>
+                                <Activity className="w-3 h-3 shrink-0" />
+                                <span className="truncate max-w-[200px]">{sess.currentView || 'Active on Portal'}</span>
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-3">
+                              <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+                                {isMobile ? (
+                                  <Smartphone className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                                ) : isTablet ? (
+                                  <Laptop className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                ) : (
+                                  <Laptop className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                )}
+                                <span className="text-[11px] truncate">{sess.device || 'Web Browser'}</span>
+                              </div>
+                            </td>
+
+                            <td className="py-3 px-3 text-slate-500 text-[11px]">
+                              {new Date(sess.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+
+                            <td className="py-3 px-3">
+                              <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400">
+                                {formatLastActive(sess.lastActive)}
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-3 text-right">
+                              {isLiveNow ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                  <span className="relative flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                  </span>
+                                  <span>Online</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500">
+                                  <span>Idle</span>
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>

@@ -46,7 +46,10 @@ import {
   ChevronLeft,
   RotateCcw,
   Filter,
+  Activity,
+  Smartphone,
 } from 'lucide-react';
+import { usePresence } from '../../hooks/usePresence';
 import { JAMB_YEARS, SUBJECT_CONFIGS } from '../../data/verifiedTextbooks';
 import { CbtTestModal } from './CbtTestModal';
 import { UniversityConnectTab } from './UniversityConnectTab';
@@ -142,6 +145,25 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     }
     return 'Candidate';
   })();
+
+  const [isLiveSessionsModalOpen, setIsLiveSessionsModalOpen] = useState(false);
+
+  // Real-time active presence tracking for currently logged-in student
+  const userIdentifier = user.identifier || user.email || 'candidate';
+  const userDisplayName = user.name || (studentFirstName !== 'Candidate' ? studentFirstName : userIdentifier.split('@')[0]);
+  const currentActivity = isCbtModalOpen
+    ? `Taking CBT: ${activeTest.title || 'Exam'}`
+    : activeNav === 'Home'
+    ? 'Preparing for UTME 2026'
+    : `Studying: ${activeNav}`;
+
+  const { activeSessions, onlineCount } = usePresence({
+    userId: userIdentifier,
+    userName: userDisplayName,
+    userEmail: user.email || (user.identifier?.includes('@') ? user.identifier : `${userIdentifier}@student.jambix.ng`),
+    currentView: currentActivity,
+    role: 'student',
+  });
 
   // Load offline data first, then merge cloud data if online
   const loadStoredData = () => {
@@ -283,6 +305,22 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
             {/* Right Action Controls: Clean and spacious */}
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              {/* Live Online Students Tracking Badge */}
+              <button
+                type="button"
+                onClick={() => setIsLiveSessionsModalOpen(true)}
+                title="Real-time count of candidates studying online right now. Click to view live learners."
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-800 transition-all cursor-pointer shadow-2xs group"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span className="font-extrabold">{onlineCount}</span>
+                <span className="hidden sm:inline">Online</span>
+                <Activity className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform" />
+              </button>
+
               {/* Free Access Badge */}
               <div
                 className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"
@@ -439,6 +477,54 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             {/* View Render Based on Active Nav */}
             {activeNav === 'Home' && (
               <>
+                {/* Live Study Community & Online Counter Bar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
+                  <div className="flex items-center gap-3">
+                    <div className="flex -space-x-2 overflow-hidden shrink-0">
+                      {activeSessions.slice(0, 5).map((s, idx) => {
+                        const letter = s.userName ? s.userName.charAt(0).toUpperCase() : 'U';
+                        const colors = ['bg-emerald-500', 'bg-indigo-500', 'bg-purple-500', 'bg-amber-500', 'bg-rose-500'];
+                        const col = colors[idx % colors.length];
+                        return (
+                          <div
+                            key={s.id || idx}
+                            title={`${s.userName} (${s.currentView || 'Active'})`}
+                            className={`inline-flex h-8 w-8 rounded-full ring-2 ring-white dark:ring-slate-900 ${col} text-white font-bold text-xs items-center justify-center shadow-xs`}
+                          >
+                            {letter}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                        <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
+                          {onlineCount} UTME Candidates Active Right Now
+                        </span>
+                        <span className="hidden md:inline px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300">
+                          Live Room
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                        Fellow students across Nigeria are practicing past questions &amp; mock CBT exams right now.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsLiveSessionsModalOpen(true)}
+                    className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200/80 dark:border-emerald-800 transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+                  >
+                    <Activity className="w-3.5 h-3.5" />
+                    <span>View Online Learners &rarr;</span>
+                  </button>
+                </div>
+
                 {/* Single Long Horizontal Green Tab: JAMB UTME Prep Center */}
                 <div className="relative rounded-2xl overflow-hidden p-5 sm:p-6 bg-gradient-to-r from-[#047857] via-[#059669] to-[#065f46] text-white shadow-sm border border-emerald-600/40">
                   <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
@@ -1661,6 +1747,122 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           );
         })}
       </nav>
+
+      {/* Live Study Room Modal */}
+      {isLiveSessionsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[85vh]">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-emerald-50/50 dark:bg-emerald-950/20">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-black text-slate-900 dark:text-white">
+                      Live Study Room
+                    </h3>
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                      {onlineCount} Online
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Candidates studying with you across Nigeria right now.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsLiveSessionsModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center font-bold text-sm cursor-pointer transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* List of Active Candidates */}
+            <div className="p-4 overflow-y-auto space-y-2.5 flex-1 divide-y divide-slate-100 dark:divide-slate-800/60">
+              {activeSessions.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs">
+                  Connecting to live study room...
+                </div>
+              ) : (
+                activeSessions.map((sess) => {
+                  const isCurrent = Boolean(
+                    (user.email && sess.userEmail && sess.userEmail === user.email) ||
+                    (user.identifier && sess.userEmail && sess.userEmail.includes(user.identifier))
+                  );
+                  const initials = sess.userName
+                    ? sess.userName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+                    : 'CD';
+                  const isMobile = sess.device?.toLowerCase().includes('mobile');
+
+                  return (
+                    <div key={sess.id} className="pt-2.5 first:pt-0 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="relative">
+                          <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${
+                            isCurrent
+                              ? 'bg-emerald-600 text-white ring-2 ring-emerald-300'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
+                          }`}>
+                            {initials}
+                          </div>
+                          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900" />
+                        </div>
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                              {sess.userName || 'Candidate'}
+                            </span>
+                            {isCurrent && (
+                              <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                                You
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate flex items-center gap-1">
+                            <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                              {sess.currentView || 'Active studying'}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="flex items-center justify-end gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          {isMobile ? <Smartphone className="w-3 h-3 text-sky-500" /> : <Laptop className="w-3 h-3 text-emerald-500" />}
+                          <span className="text-[10px]">{isMobile ? 'Mobile' : 'Desktop'}</span>
+                        </div>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          Online
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                Study alongside high-scoring UTME aspirants
+              </span>
+              <button
+                onClick={() => setIsLiveSessionsModalOpen(false)}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              >
+                Back to Study
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CBT Test Modal */}
       <CbtTestModal

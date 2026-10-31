@@ -63,6 +63,18 @@ export interface FeedPostData {
   createdAt?: unknown;
 }
 
+export interface ActiveSessionData {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail?: string;
+  currentView: string;
+  device: string;
+  lastActive: number;
+  startedAt: number;
+  isOnline: boolean;
+}
+
 function isOfflineError(error: unknown): boolean {
   if (!error) return false;
   const str = String(error).toLowerCase();
@@ -660,5 +672,107 @@ export async function createAdminAnnouncement(title: string, content: string): P
       return;
     }
     handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+/**
+ * 6. Live Active Presence Session Operations
+ */
+
+/**
+ * Pushes or refreshes a live session heartbeat in /activeSessions/{sessionId}
+ */
+export async function updateSessionPresence(
+  session: ActiveSessionData
+): Promise<void> {
+  const sessionId = session.id;
+  try {
+    const sessionRef = doc(db, 'activeSessions', sessionId);
+    await setDoc(sessionRef, {
+      ...session,
+      lastActive: Date.now(),
+      isOnline: true,
+    }, { merge: true });
+  } catch (error) {
+    if (isOfflineError(error)) {
+      return;
+    }
+    console.warn('updateSessionPresence sync note:', error);
+  }
+}
+
+/**
+ * Marks session as offline when candidate navigates away or logs out
+ */
+export async function endSessionPresence(sessionId: string): Promise<void> {
+  if (!sessionId) return;
+  try {
+    const sessionRef = doc(db, 'activeSessions', sessionId);
+    await updateDoc(sessionRef, {
+      isOnline: false,
+      lastActive: Date.now(),
+    });
+  } catch (err) {
+    // Non-fatal if session already expired or offline
+    console.warn('endSessionPresence note:', err);
+  }
+}
+
+/**
+ * Real-time listener for all currently active and logged in sessions
+ * Inactive threshold: Active within last 3 minutes (180,000 ms) and isOnline === true
+ */
+export function subscribeToActiveSessions(
+  callback: (sessions: ActiveSessionData[]) => void
+): () => void {
+  try {
+    const q = query(
+      collection(db, 'activeSessions'),
+      where('isOnline', '==', true),
+      limit(200)
+    );
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const now = Date.now();
+        const activeThreshold = 3 * 60 * 1000; // 3 minutes
+        const sessions = snapshot.docs
+          .map((d) => d.data() as ActiveSessionData)
+          .filter((s) => s.isOnline && now - (s.lastActive || 0) <= activeThreshold);
+        
+        // Sort newest activity first
+        sessions.sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0));
+        callback(sessions);
+      },
+      (error) => {
+        console.warn('subscribeToActiveSessions listener note:', error);
+      }
+    );
+  } catch (err) {
+    console.warn('subscribeToActiveSessions setup note:', err);
+    return () => {};
+  }
+}
+
+/**
+ * Fetches current active sessions snapshot
+ */
+export async function getActiveSessions(): Promise<ActiveSessionData[]> {
+  try {
+    const q = query(
+      collection(db, 'activeSessions'),
+      where('isOnline', '==', true),
+      limit(200)
+    );
+    const snap = await getDocs(q);
+    const now = Date.now();
+    const activeThreshold = 3 * 60 * 1000;
+    return snap.docs
+      .map((d) => d.data() as ActiveSessionData)
+      .filter((s) => s.isOnline && now - (s.lastActive || 0) <= activeThreshold)
+      .sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0));
+  } catch (error) {
+    console.warn('getActiveSessions note:', error);
+    return [];
   }
 }

@@ -163,5 +163,10 @@ service cloud.firestore {
                        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['isActivated', 'activatedAt', 'paymentReference', 'opayAccount', 'isEmailVerified']));
       allow delete: if isAdmin();
     }
+
+    // Real-time active user sessions & presence tracking
+    match /activeSessions/{sessionId} {
+      allow read, write: if true;
+    }
   }
 }
