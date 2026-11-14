@@ -575,7 +575,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
         fullName: usr.fullName || existing?.fullName || 'Candidate',
         phoneNumber: usr.phoneNumber || existing?.phoneNumber,
         registeredAt: usr.registeredAt || existing?.registeredAt || Date.now(),
-        isActivated: usr.isActivated !== undefined ? usr.isActivated : Boolean(existing?.isActivated),
+        isActivated: existing ? Boolean(existing.isActivated) : Boolean(usr.isActivated),
         paymentReference: usr.paymentReference || existing?.paymentReference,
         opayAccount: usr.opayAccount || existing?.opayAccount,
         targetScore: usr.targetScore,
