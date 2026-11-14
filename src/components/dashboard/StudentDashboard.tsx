@@ -70,6 +70,8 @@ import {
   submitBasicActivationRequest,
   subscribeToStudentBasicRequest,
   BasicActivationRequestData,
+  subscribeToAccountActivation,
+  AccountActivationData,
 } from '../../lib/firestoreService';
 import {
   getLocalTestResults,
@@ -121,13 +123,20 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [historyReviewSubject, setHistoryReviewSubject] = useState<string>('All');
 
   // Basic Tab Activation Request State
+  const basicEmailStorageKey = `jambix_basic_email_${(user.identifier || user.email || 'candidate').replace(/[^a-zA-Z0-9]/g, '_')}`;
   const [basicName, setBasicName] = useState<string>(user.name || '');
-  const [basicEmail, setBasicEmail] = useState<string>(
-    user.email || (user.identifier?.includes('@') ? user.identifier : '')
-  );
+  const [basicEmail, setBasicEmail] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(`jambix_basic_email_${(user.identifier || user.email || 'candidate').replace(/[^a-zA-Z0-9]/g, '_')}`);
+      if (saved) return saved;
+    }
+    return user.email || (user.identifier?.includes('@') ? user.identifier : '');
+  });
   const [isSubmittingBasic, setIsSubmittingBasic] = useState(false);
   const [basicRequestRecord, setBasicRequestRecord] = useState<BasicActivationRequestData | null>(null);
+  const [cloudBasicActivation, setCloudBasicActivation] = useState<AccountActivationData | null>(null);
   const [basicFeedback, setBasicFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const wasBasicUnlockedRef = React.useRef<boolean>(false);
 
   const handleNavClick = (navId: string) => {
     setActiveNav(navId);
@@ -240,16 +249,34 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   // Real-time listener for Student Basic Account Activation status
   useEffect(() => {
-    const emailToWatch = (basicEmail || user.email || '').trim();
+    const emailToWatch = (basicEmail || user.email || '').trim().toLowerCase();
     if (!emailToWatch || !emailToWatch.includes('@')) {
       setBasicRequestRecord(null);
+      setCloudBasicActivation(null);
       return;
     }
-    const unsub = subscribeToStudentBasicRequest(emailToWatch, (req) => {
+    const unsubReq = subscribeToStudentBasicRequest(emailToWatch, (req) => {
       setBasicRequestRecord(req);
     });
-    return () => unsub();
+    const unsubAct = subscribeToAccountActivation(emailToWatch, (act) => {
+      setCloudBasicActivation(act);
+    });
+    return () => {
+      unsubReq();
+      unsubAct();
+    };
   }, [basicEmail, user.email]);
+
+  const isBasicUnlocked =
+    basicRequestRecord?.status === 'activated' ||
+    Boolean(cloudBasicActivation?.isActivated);
+
+  useEffect(() => {
+    if (isBasicUnlocked && !wasBasicUnlockedRef.current) {
+      showToast('✓ Account Activated! Both Basic access cards are now unlocked.');
+    }
+    wasBasicUnlockedRef.current = isBasicUnlocked;
+  }, [isBasicUnlocked]);
 
   const handleSubmitBasicRequest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -268,6 +295,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
     setIsSubmittingBasic(true);
     try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(basicEmailStorageKey, cleanEmail);
+      }
       const saved = await submitBasicActivationRequest({
         studentName: cleanName,
         studentEmail: cleanEmail,
@@ -277,8 +307,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       setBasicFeedback({
         type: 'success',
         text: saved.status === 'activated'
-          ? 'Your Basic account is already activated!'
-          : 'Your Name and Email have been sent to the Admin Dashboard for Basic Account Activation.',
+          ? 'Your Basic account is already activated! Both cards below are unlocked.'
+          : 'Your Name and Email have been sent to the Admin Dashboard. The two cards below will unlock immediately once Admin clicks ACTIVATE ACCOUNT.',
       });
       showToast('✓ Basic activation request sent to Admin!');
     } catch (err) {
@@ -1501,7 +1531,159 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
             {/* View: Basic Account Activation Tab */}
             {activeNav === 'Basic' && (
-              <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in duration-200">
+              <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-200">
+                {/* Two Basic Access Cards with Real-Time Lock / Unlock Buttons */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Card 1: Full UTME CBT Exam Suite */}
+                  <div
+                    className={`rounded-2xl border p-5 sm:p-6 shadow-2xs flex flex-col justify-between gap-4 transition-all ${
+                      isBasicUnlocked
+                        ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-400/70 dark:border-emerald-700 hover:shadow-md'
+                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div
+                          className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+                            isBasicUnlocked
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                          }`}
+                        >
+                          <Monitor className="w-5 h-5" />
+                        </div>
+
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                            isBasicUnlocked
+                              ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          {isBasicUnlocked ? (
+                            <>
+                              <Unlock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                              <span>Unlocked</span>
+                            </>
+                          ) : (
+                            <>
+                              <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                              <span>Locked</span>
+                            </>
+                          )}
+                        </span>
+                      </div>
+
+                      <div>
+                        <h3 className="text-base font-black text-slate-900 dark:text-white">
+                          Basic Full UTME CBT Suite
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                          Full access to the 180-question 4-subject JAMB CBT exam simulator, official 8-key shortcuts, timer, and /400 score grading.
+                        </p>
+                      </div>
+                    </div>
+
+                    {isBasicUnlocked ? (
+                      <button
+                        type="button"
+                        onClick={() => handleLaunchTest('Basic Account: JAMB UTME Full CBT Simulation', 'jamb')}
+                        className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                      >
+                        <Unlock className="w-4 h-4" />
+                        <span>Open Full CBT Access</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          showToast('Locked: Send your Name & Email below and wait for Admin to click ACTIVATE ACCOUNT.');
+                        }}
+                        className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                      >
+                        <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                        <span>Locked · Awaiting Account Activation</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Card 2: 1978–2026 Past Questions & Solutions Bank */}
+                  <div
+                    className={`rounded-2xl border p-5 sm:p-6 shadow-2xs flex flex-col justify-between gap-4 transition-all ${
+                      isBasicUnlocked
+                        ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-400/70 dark:border-emerald-700 hover:shadow-md'
+                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div
+                          className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+                            isBasicUnlocked
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                          }`}
+                        >
+                          <BookOpen className="w-5 h-5" />
+                        </div>
+
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                            isBasicUnlocked
+                              ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          {isBasicUnlocked ? (
+                            <>
+                              <Unlock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                              <span>Unlocked</span>
+                            </>
+                          ) : (
+                            <>
+                              <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                              <span>Locked</span>
+                            </>
+                          )}
+                        </span>
+                      </div>
+
+                      <div>
+                        <h3 className="text-base font-black text-slate-900 dark:text-white">
+                          Basic Past Questions &amp; Textbook Archive
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                          Unlimited access to the 1978–2026 UTME past questions vault, detailed explanations, and accredited textbook references.
+                        </p>
+                      </div>
+                    </div>
+
+                    {isBasicUnlocked ? (
+                      <button
+                        type="button"
+                        onClick={() => handleNavClick('Archive')}
+                        className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                      >
+                        <Unlock className="w-4 h-4" />
+                        <span>Open Full Archive Access</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          showToast('Locked: Send your Name & Email below and wait for Admin to click ACTIVATE ACCOUNT.');
+                        }}
+                        className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                      >
+                        <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                        <span>Locked · Awaiting Account Activation</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Student Name & Email Submission Form */}
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-2xs space-y-6">
                   <div className="flex items-start justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
                     <div className="flex items-center gap-3">
@@ -1513,14 +1695,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                           Basic Account Activation
                         </h2>
                         <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                          Send your full name and email address to the Admin Dashboard for account activation.
+                          Send your full name and email address to the Admin Dashboard to unlock both cards above immediately.
                         </p>
                       </div>
                     </div>
 
-                    {basicRequestRecord?.status === 'activated' ? (
+                    {isBasicUnlocked ? (
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shrink-0">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <Unlock className="w-3.5 h-3.5" />
                         Activated
                       </span>
                     ) : basicRequestRecord?.status === 'pending' ? (
@@ -1531,28 +1713,30 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     ) : null}
                   </div>
 
-                  {basicRequestRecord && (
+                  {(basicRequestRecord || isBasicUnlocked) && (
                     <div
                       className={`p-4 rounded-xl border text-xs flex items-start gap-3 ${
-                        basicRequestRecord.status === 'activated'
+                        isBasicUnlocked
                           ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
                           : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200'
                       }`}
                     >
-                      {basicRequestRecord.status === 'activated' ? (
+                      {isBasicUnlocked ? (
                         <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                       ) : (
                         <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                       )}
                       <div className="space-y-1">
                         <p className="font-bold">
-                          {basicRequestRecord.status === 'activated'
-                            ? 'Your Basic account has been activated by Admin!'
+                          {isBasicUnlocked
+                            ? 'Your Basic account is activated! Both cards above are unlocked with full access.'
                             : 'Request received by Admin — waiting for activation'}
                         </p>
-                        <p className="opacity-85">
-                          Submitted details: <strong>{basicRequestRecord.studentName}</strong> ({basicRequestRecord.studentEmail})
-                        </p>
+                        {basicRequestRecord && (
+                          <p className="opacity-85">
+                            Submitted details: <strong>{basicRequestRecord.studentName}</strong> ({basicRequestRecord.studentEmail})
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}

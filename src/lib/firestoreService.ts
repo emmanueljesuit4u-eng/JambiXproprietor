@@ -510,18 +510,42 @@ export async function adminToggleActivation(
   try {
     const actRef = doc(db, 'accountActivations', activationId);
     const snap = await getDoc(actRef);
-    const baseData: Record<string, any> = {
-      id: activationId,
-      email: email.toLowerCase().trim().slice(0, 100),
+    const updateFields = {
       isActivated,
       activatedAt: isActivated ? Date.now() : 0,
       paymentReference: (isActivated ? paymentReference : 'DEACTIVATED-BY-ADMIN').slice(0, 100),
       opayAccount: 'ADMIN_MANUAL',
     };
-    if (!snap.exists()) {
-      baseData.registeredAt = Date.now();
+    if (snap.exists()) {
+      await updateDoc(actRef, updateFields);
+    } else {
+      await setDoc(actRef, {
+        id: activationId,
+        email: email.toLowerCase().trim().slice(0, 100),
+        registeredAt: Date.now(),
+        ...updateFields,
+      });
     }
-    await setDoc(actRef, baseData, { merge: true });
+
+    // Keep basicActivationRequests in sync if a request exists for this email
+    try {
+      const reqRef = doc(db, 'basicActivationRequests', activationId);
+      const reqSnap = await getDoc(reqRef);
+      if (reqSnap.exists()) {
+        const existingReq = reqSnap.data() as BasicActivationRequestData;
+        await setDoc(reqRef, {
+          id: activationId,
+          studentName: (existingReq.studentName || 'Candidate').slice(0, 100),
+          studentEmail: email.toLowerCase().trim().slice(0, 100),
+          status: isActivated ? 'activated' : 'pending',
+          submittedAt: existingReq.submittedAt || Date.now(),
+          ...(existingReq.userId ? { userId: String(existingReq.userId).slice(0, 128) } : {}),
+          ...(isActivated ? { activatedAt: Date.now() } : {}),
+        });
+      }
+    } catch (syncErr) {
+      console.warn('basicActivationRequests sync note:', syncErr);
+    }
   } catch (error) {
     if (isOfflineError(error)) {
       console.warn('adminToggleActivation offline note');
