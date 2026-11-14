@@ -1162,10 +1162,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
             </span>
           </div>
 
-          {/* Card 3: Activated Licenses */}
+          {/* Card 3: Activated Basic Accounts */}
           <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1">
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-              <span className="text-[11px] font-bold uppercase tracking-wider">Activated Accounts</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider">Activated basic accounts</span>
               <UserCheck className="w-4 h-4 text-emerald-600" />
             </div>
             <div className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400">
