@@ -509,18 +509,19 @@ export async function adminToggleActivation(
   const path = `accountActivations/${activationId}`;
   try {
     const actRef = doc(db, 'accountActivations', activationId);
-    await setDoc(
-      actRef,
-      {
-        id: activationId,
-        email: email.toLowerCase().trim(),
-        isActivated,
-        activatedAt: isActivated ? Date.now() : 0,
-        paymentReference: isActivated ? paymentReference : 'DEACTIVATED-BY-ADMIN',
-        opayAccount: 'ADMIN_MANUAL',
-      },
-      { merge: true }
-    );
+    const snap = await getDoc(actRef);
+    const baseData: Record<string, any> = {
+      id: activationId,
+      email: email.toLowerCase().trim().slice(0, 100),
+      isActivated,
+      activatedAt: isActivated ? Date.now() : 0,
+      paymentReference: (isActivated ? paymentReference : 'DEACTIVATED-BY-ADMIN').slice(0, 100),
+      opayAccount: 'ADMIN_MANUAL',
+    };
+    if (!snap.exists()) {
+      baseData.registeredAt = Date.now();
+    }
+    await setDoc(actRef, baseData, { merge: true });
   } catch (error) {
     if (isOfflineError(error)) {
       console.warn('adminToggleActivation offline note');
@@ -775,4 +776,148 @@ export async function getActiveSessions(): Promise<ActiveSessionData[]> {
     console.warn('getActiveSessions note:', error);
     return [];
   }
+}
+
+// ==========================================
+// 7. Basic Account Activation Requests
+// ==========================================
+
+export interface BasicActivationRequestData {
+  id: string;
+  studentName: string;
+  studentEmail: string;
+  userId?: string;
+  status: 'pending' | 'activated';
+  submittedAt: number;
+  activatedAt?: number;
+}
+
+/**
+ * Student submits their Name and Email from the Student Dashboard Basic tab
+ */
+export async function submitBasicActivationRequest(params: {
+  studentName: string;
+  studentEmail: string;
+  userId?: string;
+}): Promise<BasicActivationRequestData> {
+  const cleanEmail = params.studentEmail.toLowerCase().trim().slice(0, 100);
+  const cleanName = params.studentName.trim().slice(0, 100);
+  const requestId = sanitizeActivationId(cleanEmail) || `basic_${Date.now()}`;
+  const reqRef = doc(db, 'basicActivationRequests', requestId);
+
+  let existingStatus: 'pending' | 'activated' = 'pending';
+  let existingActivatedAt: number | undefined = undefined;
+  try {
+    const existingSnap = await getDoc(reqRef);
+    if (existingSnap.exists()) {
+      const existingData = existingSnap.data() as BasicActivationRequestData;
+      if (existingData.status === 'activated') {
+        existingStatus = 'activated';
+        existingActivatedAt = existingData.activatedAt;
+      }
+    }
+  } catch (err) {
+    console.warn('submitBasicActivationRequest pre-check note:', err);
+  }
+
+  const payload: BasicActivationRequestData = {
+    id: requestId,
+    studentName: cleanName,
+    studentEmail: cleanEmail,
+    status: existingStatus,
+    submittedAt: Date.now(),
+    ...(params.userId ? { userId: String(params.userId).slice(0, 128) } : {}),
+    ...(existingActivatedAt !== undefined ? { activatedAt: existingActivatedAt } : {}),
+  };
+
+  await setDoc(reqRef, payload);
+  return payload;
+}
+
+/**
+ * Admin real-time listener for all student requests sent from the Basic tab
+ */
+export function subscribeToBasicActivationRequests(
+  callback: (requests: BasicActivationRequestData[]) => void
+): () => void {
+  try {
+    const q = query(collection(db, 'basicActivationRequests'), limit(300));
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const list = snapshot.docs.map((d) => d.data() as BasicActivationRequestData);
+        list.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
+        callback(list);
+      },
+      (error) => {
+        if (!isOfflineError(error)) {
+          console.warn('subscribeToBasicActivationRequests error:', error);
+        }
+      }
+    );
+  } catch (err) {
+    console.warn('subscribeToBasicActivationRequests setup note:', err);
+    return () => {};
+  }
+}
+
+/**
+ * Student real-time listener for their own Basic tab request status
+ */
+export function subscribeToStudentBasicRequest(
+  email: string,
+  callback: (request: BasicActivationRequestData | null) => void
+): () => void {
+  if (!email || !email.trim()) return () => {};
+  const requestId = sanitizeActivationId(email);
+  if (!requestId) return () => {};
+
+  try {
+    const reqRef = doc(db, 'basicActivationRequests', requestId);
+    return onSnapshot(
+      reqRef,
+      (snap) => {
+        if (snap.exists()) {
+          callback(snap.data() as BasicActivationRequestData);
+        } else {
+          callback(null);
+        }
+      },
+      (error) => {
+        if (!isOfflineError(error)) {
+          console.warn('subscribeToStudentBasicRequest error:', error);
+        }
+      }
+    );
+  } catch (err) {
+    return () => {};
+  }
+}
+
+/**
+ * Admin action: clicks "ACTIVATE ACCOUNT" beside a student's name in the Basic Requests tab
+ */
+export async function activateBasicStudentRequest(
+  request: BasicActivationRequestData,
+  activate: boolean = true
+): Promise<void> {
+  const requestId = request.id || sanitizeActivationId(request.studentEmail);
+  const reqRef = doc(db, 'basicActivationRequests', requestId);
+
+  const updatedPayload: BasicActivationRequestData = {
+    id: requestId,
+    studentName: (request.studentName || 'Candidate').slice(0, 100),
+    studentEmail: request.studentEmail.toLowerCase().trim().slice(0, 100),
+    status: activate ? 'activated' : 'pending',
+    submittedAt: request.submittedAt || Date.now(),
+    ...(request.userId ? { userId: String(request.userId).slice(0, 128) } : {}),
+    ...(activate ? { activatedAt: Date.now() } : {}),
+  };
+
+  await setDoc(reqRef, updatedPayload);
+  await adminToggleActivation(
+    updatedPayload.studentEmail,
+    activate,
+    activate ? 'BASIC-ACTIVATION-GRANT' : 'DEACTIVATED-BY-ADMIN'
+  );
 }

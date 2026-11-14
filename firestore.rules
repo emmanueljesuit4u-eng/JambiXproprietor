@@ -92,6 +92,18 @@ service cloud.firestore {
              (!('isEmailVerified' in data) || (data.isEmailVerified is bool));
     }
 
+    function isValidBasicActivationRequest(data) {
+      return data.keys().hasAll(['id', 'studentName', 'studentEmail', 'status', 'submittedAt']) &&
+             data.keys().hasOnly(['id', 'studentName', 'studentEmail', 'userId', 'status', 'submittedAt', 'activatedAt']) &&
+             data.id is string && isValidId(data.id) &&
+             data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 100 &&
+             data.studentEmail is string && data.studentEmail.size() > 0 && data.studentEmail.size() <= 100 &&
+             data.status in ['pending', 'activated'] &&
+             data.submittedAt is number &&
+             (!('userId' in data) || (data.userId is string && data.userId.size() <= 128)) &&
+             (!('activatedAt' in data) || (data.activatedAt is number));
+    }
+
     // Health check / connection test doc
     match /test/{docId} {
       allow read: if true;
@@ -167,6 +179,14 @@ service cloud.firestore {
     // Real-time active user sessions & presence tracking
     match /activeSessions/{sessionId} {
       allow read, write: if true;
+    }
+
+    // Student Basic Account Activation Requests (from Student Dashboard Basic tab)
+    match /basicActivationRequests/{requestId} {
+      allow read: if true;
+      allow create: if isValidId(requestId) && isValidBasicActivationRequest(incoming()) && incoming().id == requestId;
+      allow update: if isValidId(requestId) && isValidBasicActivationRequest(incoming()) && incoming().id == existing().id;
+      allow delete: if isAdmin();
     }
   }
 }

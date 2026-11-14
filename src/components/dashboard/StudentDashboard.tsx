@@ -48,6 +48,9 @@ import {
   Filter,
   Activity,
   Smartphone,
+  Send,
+  Mail,
+  UserCheck,
 } from 'lucide-react';
 import { usePresence } from '../../hooks/usePresence';
 import { JAMB_YEARS, SUBJECT_CONFIGS } from '../../data/verifiedTextbooks';
@@ -64,6 +67,9 @@ import {
   getUserTestResults,
   subscribeToTestResults,
   TestResultData,
+  submitBasicActivationRequest,
+  subscribeToStudentBasicRequest,
+  BasicActivationRequestData,
 } from '../../lib/firestoreService';
 import {
   getLocalTestResults,
@@ -113,6 +119,15 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [reviewingTest, setReviewingTest] = useState<OfflineTestResult | null>(null);
   const [historyReviewStatus, setHistoryReviewStatus] = useState<'All' | 'Correct' | 'Incorrect' | 'Unattempted'>('All');
   const [historyReviewSubject, setHistoryReviewSubject] = useState<string>('All');
+
+  // Basic Tab Activation Request State
+  const [basicName, setBasicName] = useState<string>(user.name || '');
+  const [basicEmail, setBasicEmail] = useState<string>(
+    user.email || (user.identifier?.includes('@') ? user.identifier : '')
+  );
+  const [isSubmittingBasic, setIsSubmittingBasic] = useState(false);
+  const [basicRequestRecord, setBasicRequestRecord] = useState<BasicActivationRequestData | null>(null);
+  const [basicFeedback, setBasicFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const handleNavClick = (navId: string) => {
     setActiveNav(navId);
@@ -223,6 +238,60 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     return () => unsub();
   }, []);
 
+  // Real-time listener for Student Basic Account Activation status
+  useEffect(() => {
+    const emailToWatch = (basicEmail || user.email || '').trim();
+    if (!emailToWatch || !emailToWatch.includes('@')) {
+      setBasicRequestRecord(null);
+      return;
+    }
+    const unsub = subscribeToStudentBasicRequest(emailToWatch, (req) => {
+      setBasicRequestRecord(req);
+    });
+    return () => unsub();
+  }, [basicEmail, user.email]);
+
+  const handleSubmitBasicRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBasicFeedback(null);
+    const cleanName = basicName.trim();
+    const cleanEmail = basicEmail.trim().toLowerCase();
+
+    if (cleanName.length < 2) {
+      setBasicFeedback({ type: 'error', text: 'Please enter your full name.' });
+      return;
+    }
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setBasicFeedback({ type: 'error', text: 'Please enter a valid email address.' });
+      return;
+    }
+
+    setIsSubmittingBasic(true);
+    try {
+      const saved = await submitBasicActivationRequest({
+        studentName: cleanName,
+        studentEmail: cleanEmail,
+        userId: auth.currentUser?.uid || user.identifier || cleanEmail,
+      });
+      setBasicRequestRecord(saved);
+      setBasicFeedback({
+        type: 'success',
+        text: saved.status === 'activated'
+          ? 'Your Basic account is already activated!'
+          : 'Your Name and Email have been sent to the Admin Dashboard for Basic Account Activation.',
+      });
+      showToast('✓ Basic activation request sent to Admin!');
+    } catch (err) {
+      console.error('Basic activation submit error:', err);
+      setBasicFeedback({
+        type: 'error',
+        text: 'Could not send request right now. Please check your connection and try again.',
+      });
+    } finally {
+      setIsSubmittingBasic(false);
+    }
+  };
+
   const handleLaunchTest = (title: string, type: string, subject?: string, year?: number) => {
     setActiveTest({ title, type, subject, year });
     setIsCbtModalOpen(true);
@@ -258,6 +327,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               { id: 'Leaderboard', icon: Trophy, label: 'Leaders' },
               { id: 'History', icon: Clock, label: 'History' },
               { id: 'Connect', icon: Users, label: 'Connect' },
+              { id: 'Basic', icon: ShieldCheck, label: 'Basic' },
             ].map((item) => {
               const Icon = item.icon;
               const isActive = activeNav === item.id;
@@ -1429,6 +1499,129 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               <UniversityConnectTab showToast={showToast} />
             )}
 
+            {/* View: Basic Account Activation Tab */}
+            {activeNav === 'Basic' && (
+              <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in duration-200">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-2xs space-y-6">
+                  <div className="flex items-start justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
+                        <ShieldCheck className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                          Basic Account Activation
+                        </h2>
+                        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                          Send your full name and email address to the Admin Dashboard for account activation.
+                        </p>
+                      </div>
+                    </div>
+
+                    {basicRequestRecord?.status === 'activated' ? (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shrink-0">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Activated
+                      </span>
+                    ) : basicRequestRecord?.status === 'pending' ? (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0">
+                        <Clock className="w-3.5 h-3.5" />
+                        Pending Review
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {basicRequestRecord && (
+                    <div
+                      className={`p-4 rounded-xl border text-xs flex items-start gap-3 ${
+                        basicRequestRecord.status === 'activated'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                          : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200'
+                      }`}
+                    >
+                      {basicRequestRecord.status === 'activated' ? (
+                        <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      ) : (
+                        <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                      )}
+                      <div className="space-y-1">
+                        <p className="font-bold">
+                          {basicRequestRecord.status === 'activated'
+                            ? 'Your Basic account has been activated by Admin!'
+                            : 'Request received by Admin — waiting for activation'}
+                        </p>
+                        <p className="opacity-85">
+                          Submitted details: <strong>{basicRequestRecord.studentName}</strong> ({basicRequestRecord.studentEmail})
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleSubmitBasicRequest} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                        Student Full Name
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={100}
+                        placeholder="e.g. Emmanuel Jesuit"
+                        value={basicName}
+                        onChange={(e) => setBasicName(e.target.value)}
+                        className="w-full px-4 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                        Student Email Address
+                      </label>
+                      <div className="relative">
+                        <Mail className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+                        <input
+                          type="email"
+                          required
+                          maxLength={100}
+                          placeholder="e.g. student@gmail.com"
+                          value={basicEmail}
+                          onChange={(e) => setBasicEmail(e.target.value)}
+                          className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    {basicFeedback && (
+                      <div
+                        className={`p-3 rounded-xl text-xs font-semibold border ${
+                          basicFeedback.type === 'success'
+                            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                            : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300'
+                        }`}
+                      >
+                        {basicFeedback.text}
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={isSubmittingBasic}
+                      className="w-full py-3 px-5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white font-bold text-sm rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <Send className="w-4 h-4" />
+                      <span>
+                        {isSubmittingBasic
+                          ? 'Sending Name & Email...'
+                          : basicRequestRecord
+                          ? 'Update & Resend Details to Admin'
+                          : 'Send Name & Email for Activation'}
+                      </span>
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+
             {/* View: Shop / Materials */}
             {activeNav === 'Shop' && (
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xs space-y-4 transition-colors">
@@ -1716,6 +1909,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           { id: 'Leaderboard', icon: Trophy, label: 'Leaders' },
           { id: 'Archive', icon: BookOpen, label: '1978-2026' },
           { id: 'History', icon: Clock, label: 'History' },
+          { id: 'Basic', icon: ShieldCheck, label: 'Basic' },
         ].map((item) => {
           const Icon = item.icon;
           const isActive = activeNav === item.id;

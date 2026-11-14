@@ -351,6 +351,48 @@
         }
       },
       "required": ["id", "userId", "userName", "lastActive", "isOnline"]
+    },
+    "BasicActivationRequest": {
+      "title": "BasicActivationRequest",
+      "description": "Student basic account activation request sent from the Student Dashboard Basic tab",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Sanitized email identifier matching document ID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "studentName": {
+          "type": "string",
+          "description": "Full name submitted by student",
+          "maxLength": 100
+        },
+        "studentEmail": {
+          "type": "string",
+          "description": "Email address submitted by student",
+          "maxLength": 100
+        },
+        "userId": {
+          "type": "string",
+          "description": "Optional candidate identifier",
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "description": "Request status: pending or activated",
+          "maxLength": 30
+        },
+        "submittedAt": {
+          "type": "number",
+          "description": "Epoch timestamp in milliseconds when student submitted request"
+        },
+        "activatedAt": {
+          "type": "number",
+          "description": "Epoch timestamp in milliseconds when admin activated the account"
+        }
+      },
+      "required": ["id", "studentName", "studentEmail", "status", "submittedAt"]
     }
   },
   "firestore": {
@@ -377,6 +419,10 @@
     "/activeSessions/{sessionId}": {
       "schema": "ActiveSession",
       "description": "Live online session tracking for students and admins currently on the app"
+    },
+    "/basicActivationRequests/{requestId}": {
+      "schema": "BasicActivationRequest",
+      "description": "Basic account activation requests sent by students from the Student Dashboard Basic tab"
     }
   }
 }

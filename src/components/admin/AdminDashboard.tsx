@@ -81,6 +81,9 @@ import {
   ActiveSessionData,
   subscribeToActiveSessions,
   updateSessionPresence,
+  BasicActivationRequestData,
+  subscribeToBasicActivationRequests,
+  activateBasicStudentRequest,
 } from '../../lib/firestoreService';
 import {
   SUBJECT_CONFIGS,
@@ -101,7 +104,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
 
   // Active Admin Tabs
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'sessions' | 'students' | 'tests' | 'questions' | 'feed' | 'security'
+    'overview' | 'sessions' | 'basicRequests' | 'students' | 'tests' | 'questions' | 'feed' | 'security'
   >('overview');
 
   // Data states
@@ -109,6 +112,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
   const [activations, setActivations] = useState<AccountActivationData[]>([]);
   const [testResults, setTestResults] = useState<TestResultData[]>([]);
   const [activeSessions, setActiveSessions] = useState<ActiveSessionData[]>([]);
+  const [basicRequests, setBasicRequests] = useState<BasicActivationRequestData[]>([]);
   const [feedPosts, setFeedPosts] = useState<FeedPostData[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
@@ -119,6 +123,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
   const [searchTest, setSearchTest] = useState('');
   const [searchSession, setSearchSession] = useState('');
   const [sessionFilter, setSessionFilter] = useState<'all' | 'mobile' | 'desktop' | 'cbt'>('all');
+  const [searchBasicRequest, setSearchBasicRequest] = useState('');
+  const [activatingRequestId, setActivatingRequestId] = useState<string | null>(null);
   const [isSimulatingTest, setIsSimulatingTest] = useState(false);
   const [isSimulatingSession, setIsSimulatingSession] = useState(false);
   const [newStudentEmail, setNewStudentEmail] = useState('');
@@ -403,6 +409,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     return () => unsub();
   }, [isAuthorizedAdmin]);
 
+  // Subscribe to real-time Basic activation requests from Student Dashboard Basic tab
+  useEffect(() => {
+    if (!isAuthorizedAdmin) return;
+    const unsub = subscribeToBasicActivationRequests((requests) => {
+      setBasicRequests(requests);
+    });
+    return () => unsub();
+  }, [isAuthorizedAdmin]);
+
   // Admin own presence heartbeat
   useEffect(() => {
     if (!isAuthorizedAdmin) return;
@@ -667,6 +682,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
       await loadAdminData();
     } catch (err) {
       console.error('Failed to toggle activation:', err);
+    }
+  };
+
+  // Filtered Basic Activation Requests
+  const filteredBasicRequests = useMemo(() => {
+    if (!searchBasicRequest.trim()) return basicRequests;
+    const q = searchBasicRequest.toLowerCase().trim();
+    return basicRequests.filter(
+      (r) =>
+        (r.studentName || '').toLowerCase().includes(q) ||
+        (r.studentEmail || '').toLowerCase().includes(q)
+    );
+  }, [basicRequests, searchBasicRequest]);
+
+  const pendingBasicCount = basicRequests.filter((r) => r.status !== 'activated').length;
+
+  const handleActivateBasicRequest = async (req: BasicActivationRequestData, activate: boolean = true) => {
+    setActivatingRequestId(req.id);
+    try {
+      await activateBasicStudentRequest(req, activate);
+      setActionFeedback(
+        activate
+          ? `✓ Account activated for ${req.studentName} (${req.studentEmail})`
+          : `Account deactivated for ${req.studentName}`
+      );
+      setTimeout(() => setActionFeedback(null), 4000);
+      await loadAdminData();
+    } catch (err) {
+      console.error('Failed to update basic request:', err);
+    } finally {
+      setActivatingRequestId(null);
     }
   };
 
@@ -1224,6 +1270,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
           {[
             { id: 'overview', label: 'Overview & Metrics', icon: BarChart3 },
             { id: 'sessions', label: `Live Sessions (${liveOnlineCount})`, icon: Activity },
+            { id: 'basicRequests', label: `Basic Requests (${basicRequests.length})`, icon: UserCheck },
             { id: 'students', label: `Students & Licensing (${totalStudentsCount})`, icon: Users },
             { id: 'tests', label: `CBT Test Logs (${totalTestsCount})`, icon: Award },
             { id: 'questions', label: 'Curriculum & Question Bank', icon: BookOpen },
@@ -1248,6 +1295,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                   <span className="relative flex h-2 w-2 ml-0.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+                  </span>
+                )}
+                {tab.id === 'basicRequests' && pendingBasicCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950">
+                    {pendingBasicCount}
                   </span>
                 )}
               </button>
@@ -1661,6 +1713,121 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: BASIC ACTIVATION REQUESTS FROM STUDENT DASHBOARD */}
+        {activeTab === 'basicRequests' && (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Basic Tab Student Submissions ({basicRequests.length})</span>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-800">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Inbox
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Names and emails sent by students from the Basic tab in the Student Dashboard.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search student name or email..."
+                    value={searchBasicRequest}
+                    onChange={(e) => setSearchBasicRequest(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white w-56"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="py-3 px-3 font-semibold">Student Name &amp; Action</th>
+                    <th className="py-3 px-3 font-semibold">Email Address</th>
+                    <th className="py-3 px-3 font-semibold">Submitted</th>
+                    <th className="py-3 px-3 font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {filteredBasicRequests.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="py-10 text-center text-slate-400 text-xs">
+                        {basicRequests.length === 0
+                          ? 'No student details have been sent from the Basic tab yet.'
+                          : 'No submissions match your search filter.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredBasicRequests.map((req) => {
+                      const isActivated = req.status === 'activated';
+                      const isProcessing = activatingRequestId === req.id;
+                      return (
+                        <tr key={req.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3 px-3">
+                            <div className="flex items-center justify-between sm:justify-start gap-3 flex-wrap">
+                              <span className="font-bold text-slate-900 dark:text-white text-sm">
+                                {req.studentName}
+                              </span>
+                              {!isActivated ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleActivateBasicRequest(req, true)}
+                                  disabled={isProcessing}
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-[11px] font-black tracking-wide uppercase shadow-2xs transition-colors cursor-pointer"
+                                >
+                                  {isProcessing ? 'ACTIVATING...' : 'ACTIVATE ACCOUNT'}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleActivateBasicRequest(req, false)}
+                                  disabled={isProcessing}
+                                  className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 hover:text-rose-600 text-slate-600 dark:text-slate-300 rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
+                                >
+                                  {isProcessing ? 'Updating...' : 'Deactivate'}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 font-mono text-slate-600 dark:text-slate-300">
+                            {req.studentEmail}
+                          </td>
+                          <td className="py-3 px-3 text-slate-500">
+                            {new Date(req.submittedAt).toLocaleString([], {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </td>
+                          <td className="py-3 px-3">
+                            {isActivated ? (
+                              <span className="px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-full font-bold text-[10px] inline-flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" /> Activated
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 rounded-full font-bold text-[10px] inline-flex items-center gap-1">
+                                <Clock className="w-3 h-3" /> Pending Activation
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
