@@ -598,6 +598,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
       });
     });
 
+    // Merge Basic tab activation requests so Basic-activated names and counts always reflect immediately
+    basicRequests.forEach((req) => {
+      const key = (req.studentEmail || '').toLowerCase().trim();
+      if (!key) return;
+      const existing = map.get(key);
+      const isReqActivated = req.status === 'activated';
+      map.set(key, {
+        email: req.studentEmail,
+        fullName: req.studentName || existing?.fullName || 'Candidate',
+        phoneNumber: existing?.phoneNumber,
+        registeredAt: existing?.registeredAt || req.submittedAt || Date.now(),
+        isActivated: existing ? (existing.isActivated || isReqActivated) : isReqActivated,
+        paymentReference: existing?.paymentReference || (isReqActivated ? 'BASIC-ACTIVATION-GRANT' : undefined),
+        opayAccount: existing?.opayAccount,
+        targetScore: existing?.targetScore,
+        testCount: existing?.testCount || 0,
+      });
+    });
+
     // Count tests
     testResults.forEach((t) => {
       // Find matching user or email
@@ -611,7 +630,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     });
 
     return Array.from(map.values()).sort((a, b) => b.registeredAt - a.registeredAt);
-  }, [students, activations, testResults]);
+  }, [students, activations, basicRequests, testResults]);
 
   // Filtered Students
   const filteredStudents = useMemo(() => {
@@ -665,7 +684,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
   const totalStudentsCount = mergedStudents.length;
   const activatedCount = mergedStudents.filter((s) => s.isActivated).length;
   const pendingTrialCount = totalStudentsCount - activatedCount;
-  const totalRevenueNgn = activatedCount * 2500;
+  const totalRevenueNgn = activatedCount * 500;
   const totalTestsCount = testResults.length;
   const liveOnlineCount = Math.max(activeSessions.length, 1);
   const averageScore = totalTestsCount > 0
@@ -1232,7 +1251,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
               ₦{totalRevenueNgn.toLocaleString()}
             </div>
             <span className="text-[11px] text-slate-500">
-              ₦2,500 standard license fee
+              ₦500 per basic activated account
             </span>
           </div>
 
@@ -1439,7 +1458,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                         <td className="py-2.5 px-3">
                           {student.isActivated ? (
                             <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-md font-bold text-[10px]">
-                              Activated (Paid ₦2,500)
+                              Activated (Paid ₦500)
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 rounded-md font-bold text-[10px]">
