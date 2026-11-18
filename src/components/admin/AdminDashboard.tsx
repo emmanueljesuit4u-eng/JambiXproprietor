@@ -84,6 +84,8 @@ import {
   BasicActivationRequestData,
   subscribeToBasicActivationRequests,
   activateBasicStudentRequest,
+  getActivationCountdown,
+  ActivationCountdown,
 } from '../../lib/firestoreService';
 import {
   SUBJECT_CONFIGS,
@@ -125,6 +127,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
   const [sessionFilter, setSessionFilter] = useState<'all' | 'mobile' | 'desktop' | 'cbt'>('all');
   const [searchBasicRequest, setSearchBasicRequest] = useState('');
   const [activatingRequestId, setActivatingRequestId] = useState<string | null>(null);
+  const [nowTs, setNowTs] = useState<number>(() => Date.now());
+  const autoLockedEmailsRef = React.useRef<Set<string>>(new Set());
   const [isSimulatingTest, setIsSimulatingTest] = useState(false);
   const [isSimulatingSession, setIsSimulatingSession] = useState(false);
   const [newStudentEmail, setNewStudentEmail] = useState('');
@@ -418,6 +422,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     return () => unsub();
   }, [isAuthorizedAdmin]);
 
+  // Live 1-second timer for 60-day activation countdown & automatic expiry locking
+  useEffect(() => {
+    if (!isAuthorizedAdmin) return;
+    const timer = setInterval(() => {
+      setNowTs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isAuthorizedAdmin]);
+
   // Admin own presence heartbeat
   useEffect(() => {
     if (!isAuthorizedAdmin) return;
@@ -552,14 +565,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     }
   }, [previewSubject, previewYear]);
 
-  // Combined Student View: Merges UserProfiles with AccountActivations
-  const mergedStudents = useMemo(() => {
+  // Combined Student View: Merges UserProfiles with AccountActivations & Basic Requests
+  const mergedStudentsBase = useMemo(() => {
     const map = new Map<string, {
       email: string;
       fullName: string;
       phoneNumber?: string;
       registeredAt: number;
-      isActivated: boolean;
+      rawIsActivated: boolean;
+      activatedAt?: number;
       paymentReference?: string;
       opayAccount?: string;
       targetScore?: number;
@@ -573,7 +587,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
         email: act.email,
         fullName: 'Candidate',
         registeredAt: act.registeredAt,
-        isActivated: act.isActivated,
+        rawIsActivated: Boolean(act.isActivated),
+        activatedAt: act.isActivated ? act.activatedAt : undefined,
         paymentReference: act.paymentReference,
         opayAccount: act.opayAccount,
         testCount: 0,
@@ -585,12 +600,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
       const key = (usr.email || '').toLowerCase().trim();
       if (!key) return;
       const existing = map.get(key);
+      const userActAt = typeof usr.activatedAt === 'number' ? usr.activatedAt : undefined;
       map.set(key, {
         email: usr.email,
         fullName: usr.fullName || existing?.fullName || 'Candidate',
         phoneNumber: usr.phoneNumber || existing?.phoneNumber,
         registeredAt: usr.registeredAt || existing?.registeredAt || Date.now(),
-        isActivated: existing ? Boolean(existing.isActivated) : Boolean(usr.isActivated),
+        rawIsActivated: existing ? Boolean(existing.rawIsActivated) : Boolean(usr.isActivated),
+        activatedAt: existing?.activatedAt || (usr.isActivated ? userActAt : undefined),
         paymentReference: usr.paymentReference || existing?.paymentReference,
         opayAccount: usr.opayAccount || existing?.opayAccount,
         targetScore: usr.targetScore,
@@ -604,12 +621,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
       if (!key) return;
       const existing = map.get(key);
       const isReqActivated = req.status === 'activated';
+      const rawIsActivated = existing ? (existing.rawIsActivated || isReqActivated) : isReqActivated;
+      const activatedAt = isReqActivated
+        ? (req.activatedAt || existing?.activatedAt)
+        : existing?.activatedAt;
       map.set(key, {
         email: req.studentEmail,
         fullName: req.studentName || existing?.fullName || 'Candidate',
         phoneNumber: existing?.phoneNumber,
         registeredAt: existing?.registeredAt || req.submittedAt || Date.now(),
-        isActivated: existing ? (existing.isActivated || isReqActivated) : isReqActivated,
+        rawIsActivated,
+        activatedAt: rawIsActivated ? activatedAt : undefined,
         paymentReference: existing?.paymentReference || (isReqActivated ? 'BASIC-ACTIVATION-GRANT' : undefined),
         opayAccount: existing?.opayAccount,
         targetScore: existing?.targetScore,
@@ -619,7 +641,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
 
     // Count tests
     testResults.forEach((t) => {
-      // Find matching user or email
       const email = t.studentEmail?.toLowerCase().trim() || students.find((s) => s.id === t.userId)?.email?.toLowerCase().trim();
       if (email) {
         const item = map.get(email);
@@ -631,6 +652,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
 
     return Array.from(map.values()).sort((a, b) => b.registeredAt - a.registeredAt);
   }, [students, activations, basicRequests, testResults]);
+
+  // Apply real-time 60-day expiration & live countdown to every student record
+  const mergedStudents = useMemo(() => {
+    return mergedStudentsBase.map((s) => {
+      const countdown: ActivationCountdown | null = s.rawIsActivated
+        ? getActivationCountdown(s.activatedAt, nowTs)
+        : null;
+      const isExpired = Boolean(s.rawIsActivated && countdown?.isExpired);
+      const isActivated = Boolean(s.rawIsActivated && !isExpired);
+      const wasPreviouslyExpired = s.paymentReference === 'EXPIRED-AFTER-60-DAYS' && !isActivated;
+      return {
+        ...s,
+        isActivated,
+        isExpired: isExpired || wasPreviouslyExpired,
+        countdown,
+      };
+    });
+  }, [mergedStudentsBase, nowTs]);
+
+  // Persist automatic lock in Firestore once an account reaches 60 days
+  useEffect(() => {
+    if (!isAuthorizedAdmin) return;
+    mergedStudents.forEach((student) => {
+      const key = student.email.toLowerCase().trim();
+      if (student.isExpired && student.rawIsActivated && key && !autoLockedEmailsRef.current.has(key)) {
+        autoLockedEmailsRef.current.add(key);
+        adminToggleActivation(student.email, false, 'EXPIRED-AFTER-60-DAYS').catch((err) => {
+          console.warn('Auto-lock expired account note:', err);
+        });
+      } else if (student.isActivated && key && autoLockedEmailsRef.current.has(key)) {
+        autoLockedEmailsRef.current.delete(key);
+      }
+    });
+  }, [isAuthorizedAdmin, mergedStudents]);
 
   // Filtered Students
   const filteredStudents = useMemo(() => {
@@ -690,13 +745,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
   const averageScore = totalTestsCount > 0
     ? Math.round(testResults.reduce((acc, t) => acc + (t.score / (t.totalQuestions || 1)) * 400, 0) / totalTestsCount)
     : 248;
+  const soonestCountdown = useMemo(() => {
+    const activeWithCountdown = mergedStudents
+      .filter((s) => s.isActivated && s.countdown)
+      .sort((a, b) => a.countdown!.remainingMs - b.countdown!.remainingMs);
+    return activeWithCountdown[0]?.countdown || null;
+  }, [mergedStudents]);
 
   // Toggle activation handler
   const handleToggleActivation = async (email: string, currentStatus: boolean) => {
     try {
       const nextStatus = !currentStatus;
       await adminToggleActivation(email, nextStatus);
-      setActionFeedback(`Status updated for ${email}: ${nextStatus ? 'Activated' : 'Deactivated'}`);
+      setActionFeedback(`Status updated for ${email}: ${nextStatus ? 'Activated (60-day countdown started)' : 'Deactivated'}`);
       setTimeout(() => setActionFeedback(null), 3500);
       await loadAdminData();
     } catch (err) {
@@ -715,7 +776,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
     );
   }, [basicRequests, searchBasicRequest]);
 
-  const pendingBasicCount = basicRequests.filter((r) => r.status !== 'activated').length;
+  const pendingBasicCount = basicRequests.filter((r) => {
+    if (r.status !== 'activated') return true;
+    return getActivationCountdown(r.activatedAt, nowTs).isExpired;
+  }).length;
 
   const handleActivateBasicRequest = async (req: BasicActivationRequestData, activate: boolean = true) => {
     setActivatingRequestId(req.id);
@@ -1236,9 +1300,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
             <div className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400">
               {activatedCount}
             </div>
-            <span className="text-[11px] text-slate-500">
-              {totalStudentsCount > 0 ? Math.round((activatedCount / totalStudentsCount) * 100) : 0}% activation rate
+            <span className="text-[11px] text-slate-500 block">
+              {totalStudentsCount > 0 ? Math.round((activatedCount / totalStudentsCount) * 100) : 0}% activation rate · 60-day lock
             </span>
+            {soonestCountdown && (
+              <span className="text-[10px] font-mono font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1 pt-0.5">
+                <Clock className="w-3 h-3 shrink-0" />
+                <span>Next lock: {soonestCountdown.formatted}</span>
+              </span>
+            )}
           </div>
 
           {/* Card 4: Platform Revenue */}
@@ -1457,8 +1527,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                         </td>
                         <td className="py-2.5 px-3">
                           {student.isActivated ? (
-                            <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-md font-bold text-[10px]">
-                              Activated (Paid ₦500)
+                            <div className="space-y-0.5">
+                              <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-md font-bold text-[10px] inline-block">
+                                Activated (Paid ₦500)
+                              </span>
+                              {student.countdown && (
+                                <span className="block font-mono text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                                  Locks in {student.countdown.formatted}
+                                </span>
+                              )}
+                            </div>
+                          ) : student.isExpired ? (
+                            <span className="px-2 py-0.5 bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 rounded-md font-bold text-[10px] inline-flex items-center gap-1">
+                              <Lock className="w-3 h-3" /> Locked (60d Expired)
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 rounded-md font-bold text-[10px]">
@@ -1789,7 +1870,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                     </tr>
                   ) : (
                     filteredBasicRequests.map((req) => {
-                      const isActivated = req.status === 'activated';
+                      const matchedStudent = mergedStudents.find(
+                        (s) => s.email.toLowerCase().trim() === (req.studentEmail || '').toLowerCase().trim()
+                      );
+                      const effectiveActivatedAt = req.activatedAt || matchedStudent?.activatedAt;
+                      const countdown = req.status === 'activated'
+                        ? getActivationCountdown(effectiveActivatedAt, nowTs)
+                        : null;
+                      const isExpired = Boolean(
+                        (req.status === 'activated' && countdown?.isExpired) ||
+                        matchedStudent?.isExpired
+                      );
+                      const isActivated = req.status === 'activated' && !isExpired;
                       const isProcessing = activatingRequestId === req.id;
                       return (
                         <tr key={req.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
@@ -1831,9 +1923,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                             })}
                           </td>
                           <td className="py-3 px-3">
-                            {isActivated ? (
-                              <span className="px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-full font-bold text-[10px] inline-flex items-center gap-1">
-                                <CheckCircle className="w-3 h-3" /> Activated
+                            {isActivated && countdown ? (
+                              <div className="space-y-1">
+                                <span className="px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-full font-bold text-[10px] inline-flex items-center gap-1">
+                                  <CheckCircle className="w-3 h-3" /> Activated
+                                </span>
+                                <div className="font-mono text-[11px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                                  <Clock className="w-3 h-3 shrink-0" />
+                                  <span>{countdown.formatted} left</span>
+                                </div>
+                              </div>
+                            ) : isExpired ? (
+                              <span className="px-2.5 py-1 bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 rounded-full font-bold text-[10px] inline-flex items-center gap-1">
+                                <Lock className="w-3 h-3" /> Locked (60d Expired)
                               </span>
                             ) : (
                               <span className="px-2.5 py-1 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 rounded-full font-bold text-[10px] inline-flex items-center gap-1">
@@ -1930,8 +2032,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateHome }
                       </td>
                       <td className="py-3 px-3">
                         {s.isActivated ? (
-                          <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded font-bold text-[10px] inline-flex items-center gap-1">
-                            <CheckCircle className="w-3 h-3" /> Activated
+                          <div className="space-y-1">
+                            <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded font-bold text-[10px] inline-flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" /> Activated
+                            </span>
+                            {s.countdown && (
+                              <span className="block font-mono text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                                Locks in {s.countdown.formatted}
+                              </span>
+                            )}
+                          </div>
+                        ) : s.isExpired ? (
+                          <span className="px-2 py-0.5 bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 rounded font-bold text-[10px] inline-flex items-center gap-1">
+                            <Lock className="w-3 h-3" /> Locked (60d Expired)
                           </span>
                         ) : (
                           <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 rounded font-bold text-[10px] inline-flex items-center gap-1">

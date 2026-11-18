@@ -72,6 +72,8 @@ import {
   BasicActivationRequestData,
   subscribeToAccountActivation,
   AccountActivationData,
+  getActivationCountdown,
+  adminToggleActivation,
 } from '../../lib/firestoreService';
 import {
   getLocalTestResults,
@@ -136,7 +138,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [basicRequestRecord, setBasicRequestRecord] = useState<BasicActivationRequestData | null>(null);
   const [cloudBasicActivation, setCloudBasicActivation] = useState<AccountActivationData | null>(null);
   const [basicFeedback, setBasicFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [basicNowTs, setBasicNowTs] = useState<number>(() => Date.now());
   const wasBasicUnlockedRef = React.useRef<boolean>(false);
+  const autoExpiredSyncRef = React.useRef<string | null>(null);
 
   const handleNavClick = (navId: string) => {
     setActiveNav(navId);
@@ -267,16 +271,65 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     };
   }, [basicEmail, user.email]);
 
-  const isBasicUnlocked =
-    basicRequestRecord?.status === 'activated' ||
-    Boolean(cloudBasicActivation?.isActivated);
+  // Live 1-second timer to immediately re-lock Basic cards once 60 days of use elapses
+  useEffect(() => {
+    if (basicRequestRecord?.status !== 'activated' && !cloudBasicActivation?.isActivated) {
+      return;
+    }
+    setBasicNowTs(Date.now());
+    const timer = setInterval(() => {
+      setBasicNowTs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [basicRequestRecord?.status, cloudBasicActivation?.isActivated]);
+
+  const reqCountdown = basicRequestRecord?.status === 'activated'
+    ? getActivationCountdown(basicRequestRecord.activatedAt, basicNowTs)
+    : null;
+  const cloudCountdown = cloudBasicActivation?.isActivated
+    ? getActivationCountdown(cloudBasicActivation.activatedAt, basicNowTs)
+    : null;
+
+  const isReqActive = Boolean(basicRequestRecord?.status === 'activated' && !reqCountdown?.isExpired);
+  const isCloudActive = Boolean(cloudBasicActivation?.isActivated && !cloudCountdown?.isExpired);
+  const isBasicUnlocked = isReqActive || isCloudActive;
+
+  const isBasicExpired =
+    !isBasicUnlocked &&
+    Boolean(
+      (basicRequestRecord?.status === 'activated' && reqCountdown?.isExpired) ||
+      (cloudBasicActivation?.isActivated && cloudCountdown?.isExpired) ||
+      cloudBasicActivation?.paymentReference === 'EXPIRED-AFTER-60-DAYS'
+    );
+
+  // Sync automatic 60-day lock back to Firestore once expired
+  useEffect(() => {
+    const emailToWatch = (basicEmail || user.email || '').trim().toLowerCase();
+    const hasRawActive =
+      basicRequestRecord?.status === 'activated' || Boolean(cloudBasicActivation?.isActivated);
+    if (
+      hasRawActive &&
+      !isBasicUnlocked &&
+      emailToWatch &&
+      autoExpiredSyncRef.current !== emailToWatch
+    ) {
+      autoExpiredSyncRef.current = emailToWatch;
+      adminToggleActivation(emailToWatch, false, 'EXPIRED-AFTER-60-DAYS').catch((err) => {
+        console.warn('Auto-expire sync note:', err);
+      });
+    } else if (isBasicUnlocked) {
+      autoExpiredSyncRef.current = null;
+    }
+  }, [isBasicUnlocked, basicRequestRecord?.status, cloudBasicActivation?.isActivated, basicEmail, user.email]);
 
   useEffect(() => {
     if (isBasicUnlocked && !wasBasicUnlockedRef.current) {
       showToast('✓ Account Activated! Both Basic access cards are now unlocked.');
+    } else if (!isBasicUnlocked && wasBasicUnlockedRef.current && isBasicExpired) {
+      showToast('Your 60-day Basic access has expired and your account is now locked.');
     }
     wasBasicUnlockedRef.current = isBasicUnlocked;
-  }, [isBasicUnlocked]);
+  }, [isBasicUnlocked, isBasicExpired]);
 
   const handleSubmitBasicRequest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1705,6 +1758,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                         <Unlock className="w-3.5 h-3.5" />
                         Activated
                       </span>
+                    ) : isBasicExpired ? (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800 shrink-0">
+                        <Lock className="w-3.5 h-3.5" />
+                        Locked (60d Expired)
+                      </span>
                     ) : basicRequestRecord?.status === 'pending' ? (
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0">
                         <Clock className="w-3.5 h-3.5" />
@@ -1713,16 +1771,20 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     ) : null}
                   </div>
 
-                  {(basicRequestRecord || isBasicUnlocked) && (
+                  {(basicRequestRecord || isBasicUnlocked || isBasicExpired) && (
                     <div
                       className={`p-4 rounded-xl border text-xs flex items-start gap-3 ${
                         isBasicUnlocked
                           ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                          : isBasicExpired
+                          ? 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200'
                           : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200'
                       }`}
                     >
                       {isBasicUnlocked ? (
                         <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      ) : isBasicExpired ? (
+                        <Lock className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
                       ) : (
                         <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                       )}
@@ -1730,6 +1792,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                         <p className="font-bold">
                           {isBasicUnlocked
                             ? 'Your Basic account is activated! Both cards above are unlocked with full access.'
+                            : isBasicExpired
+                            ? 'Your 60-day Basic access has expired and is locked. Re-submit your details below for Admin reactivation.'
                             : 'Request received by Admin — waiting for activation'}
                         </p>
                         {basicRequestRecord && (

@@ -296,6 +296,64 @@ export interface AccountActivationData {
   opayAccount?: string;
 }
 
+export const ACTIVATION_VALIDITY_DAYS = 60;
+export const ACTIVATION_VALIDITY_MS = ACTIVATION_VALIDITY_DAYS * 24 * 60 * 60 * 1000;
+
+export interface ActivationCountdown {
+  hasActivatedAt: boolean;
+  isExpired: boolean;
+  remainingMs: number;
+  expiresAt: number | null;
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  formatted: string;
+}
+
+export function getActivationCountdown(
+  activatedAt?: number,
+  now: number = Date.now()
+): ActivationCountdown {
+  if (!activatedAt || activatedAt <= 0) {
+    return {
+      hasActivatedAt: false,
+      isExpired: false,
+      remainingMs: ACTIVATION_VALIDITY_MS,
+      expiresAt: null,
+      days: ACTIVATION_VALIDITY_DAYS,
+      hours: 0,
+      minutes: 0,
+      seconds: 0,
+      formatted: `${ACTIVATION_VALIDITY_DAYS}d 00h 00m 00s`,
+    };
+  }
+
+  const expiresAt = activatedAt + ACTIVATION_VALIDITY_MS;
+  const remainingMs = Math.max(0, expiresAt - now);
+  const isExpired = remainingMs <= 0;
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  return {
+    hasActivatedAt: true,
+    isExpired,
+    remainingMs,
+    expiresAt,
+    days,
+    hours,
+    minutes,
+    seconds,
+    formatted: isExpired
+      ? 'Expired (Locked)'
+      : `${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`,
+  };
+}
+
 export function sanitizeActivationId(email: string): string {
   return email
     .toLowerCase()
@@ -835,7 +893,10 @@ export async function submitBasicActivationRequest(params: {
     const existingSnap = await getDoc(reqRef);
     if (existingSnap.exists()) {
       const existingData = existingSnap.data() as BasicActivationRequestData;
-      if (existingData.status === 'activated') {
+      const notExpired =
+        !existingData.activatedAt ||
+        !getActivationCountdown(existingData.activatedAt).isExpired;
+      if (existingData.status === 'activated' && notExpired) {
         existingStatus = 'activated';
         existingActivatedAt = existingData.activatedAt;
       }
